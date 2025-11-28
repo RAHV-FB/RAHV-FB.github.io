@@ -97,6 +97,49 @@ textarea:focus {
   margin-top: 0.75rem;
 }
 
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.editor-toolbar {
+  display: inline-flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.rich-editor {
+  border-radius: 0.5rem;
+  border: 1px solid #d1d5db;
+  padding: 0.45rem 0.6rem;
+  min-height: 120px;
+  background: #ffffff;
+  font: inherit;
+  overflow-y: auto;
+}
+
+.rich-editor:focus-visible,
+.rich-editor:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px #2563eb33;
+}
+
+.rich-editor:empty:before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+
+.rich-editor img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0.25rem 0;
+}
+
 .actions-row {
   margin-top: 0.9rem;
   display: flex;
@@ -117,6 +160,17 @@ textarea:focus {
   justify-content: center;
   gap: 0.3rem;
   transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.btn.tiny {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.78rem;
+  box-shadow: none;
+}
+
+.btn.tiny:not(:disabled):hover {
+  box-shadow: none;
+  transform: translateY(0);
 }
 
 .btn:disabled {

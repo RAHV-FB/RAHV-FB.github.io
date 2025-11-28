@@ -86,19 +86,65 @@
             </label>
           </div>
 
-          <label class="block">
-            <span>Question text *</span>
-            <textarea id="q-text" rows="4" placeholder="Question text"></textarea>
-          </label>
+          <section class="block">
+            <div class="editor-header">
+              <span>Question text *</span>
+              <div class="editor-toolbar" data-target="q-text-editor">
+                <button type="button" class="btn tiny" data-cmd="bold">Bold</button>
+                <button type="button" class="btn tiny" data-cmd="italic">Italic</button>
+                <button
+                  type="button"
+                  class="btn tiny"
+                  data-image-target="q-text-editor"
+                >
+                  Insert image
+                </button>
+                <input
+                  type="file"
+                  accept="image/*"
+                  class="image-input"
+                  data-editor="q-text-editor"
+                  hidden
+                />
+              </div>
+            </div>
+            <div
+              id="q-text-editor"
+              class="rich-editor"
+              contenteditable="true"
+              data-placeholder="Question text"
+            ></div>
+          </section>
 
-          <label class="block">
-            <span>Mark scheme (required for types 1 and 2)</span>
-            <textarea
-              id="q-mark-scheme"
-              rows="3"
-              placeholder="Mark scheme text"
-            ></textarea>
-          </label>
+          <section class="block">
+            <div class="editor-header">
+              <span>Mark scheme (required for types 1 and 2)</span>
+              <div class="editor-toolbar" data-target="q-mark-editor">
+                <button type="button" class="btn tiny" data-cmd="bold">Bold</button>
+                <button type="button" class="btn tiny" data-cmd="italic">Italic</button>
+                <button
+                  type="button"
+                  class="btn tiny"
+                  data-image-target="q-mark-editor"
+                >
+                  Insert image
+                </button>
+                <input
+                  type="file"
+                  accept="image/*"
+                  class="image-input"
+                  data-editor="q-mark-editor"
+                  hidden
+                />
+              </div>
+            </div>
+            <div
+              id="q-mark-editor"
+              class="rich-editor"
+              contenteditable="true"
+              data-placeholder="Mark scheme text"
+            ></div>
+          </section>
 
           <div class="actions-row">
             <button id="add-question" class="btn primary">Add question</button>

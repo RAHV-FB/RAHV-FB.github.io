@@ -17,8 +17,8 @@ const qPathEl = $("q-path");
 const qAnswerTypeEl = $("q-answer-type");
 const qNeedsContextEl = $("q-needs-context");
 const qMarksEl = $("q-marks");
-const qTextEl = $("q-text");
-const qMarkSchemeEl = $("q-mark-scheme");
+const qTextEditorEl = document.getElementById("q-text-editor");
+const qMarkEditorEl = document.getElementById("q-mark-editor");
 
 const questionsEmptyEl = $("questions-empty");
 const questionsTableBodyEl = $("questions-table").querySelector("tbody");
@@ -121,9 +121,11 @@ function handleAddQuestion() {
   if (!examInfo) return;
 
   const path = qPathEl.value.trim();
-  const text = qTextEl.value.trim();
+  const questionHtml = getEditorHtml(qTextEditorEl);
+  const text = htmlToPlainText(questionHtml);
   const answerType = Number(qAnswerTypeEl.value);
-  const markScheme = qMarkSchemeEl.value.trim();
+  const markHtml = getEditorHtml(qMarkEditorEl);
+  const markScheme = htmlToPlainText(markHtml);
   const marks = Number(qMarksEl.value || 0);
   const needsContext = !!qNeedsContextEl.checked;
   const section = sectionEl.value || "";
@@ -163,8 +165,8 @@ function handleAddQuestion() {
   });
 
   qPathEl.value = "";
-  qTextEl.value = "";
-  qMarkSchemeEl.value = "";
+  qTextEditorEl.innerHTML = "";
+  qMarkEditorEl.innerHTML = "";
   qNeedsContextEl.checked = false;
   qMarksEl.value = "0";
   qPathEl.focus();
@@ -229,7 +231,10 @@ async function handleDownloadExcel() {
     updateStatus("Excel downloaded.");
   } catch (err) {
     console.error(err);
-    alert("An error occurred while contacting the backend.");
+    alert(
+      `Could not contact backend at ${BACKEND_BASE_URL}.\n\n` +
+        "Make sure the Python server is running and the URL is correct."
+    );
   } finally {
     downloadExcelBtn.disabled = questions.length === 0;
     updateStatus();
@@ -248,8 +253,85 @@ function handleClearAll() {
   updateStatus("Entries cleared.");
 }
 
+// ==== RICH TEXT HELPERS ====
+function getEditorHtml(editor) {
+  if (!editor) return "";
+  return editor.innerHTML.trim();
+}
+
+function htmlToPlainText(html) {
+  if (!html) return "";
+  const temp = document.createElement("div");
+  temp.innerHTML = html;
+  return (temp.textContent || "").trim();
+}
+
+function applyEditorCommand(command) {
+  document.execCommand(command, false, null);
+}
+
+function insertImageIntoEditor(editorId, file) {
+  const editor = document.getElementById(editorId);
+  if (!editor || !file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    if (!dataUrl) return;
+
+    const img = document.createElement("img");
+    img.src = dataUrl;
+
+    // Insert at caret position
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      editor.appendChild(img);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(img);
+  };
+  reader.readAsDataURL(file);
+}
+
 // ==== EVENT WIRING ====
 function init() {
+  // Wire up rich-text toolbar buttons
+  document.querySelectorAll(".editor-toolbar").forEach((toolbar) => {
+    const targetId = toolbar.getAttribute("data-target");
+
+    toolbar.querySelectorAll("[data-cmd]").forEach((btn) => {
+      const cmd = btn.getAttribute("data-cmd");
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const editor = document.getElementById(targetId);
+        if (!editor) return;
+        editor.focus();
+        applyEditorCommand(cmd);
+      });
+    });
+
+    toolbar.querySelectorAll("[data-image-target]").forEach((btn) => {
+      const editorId = btn.getAttribute("data-image-target");
+      const input = toolbar.querySelector(
+        `.image-input[data-editor="${editorId}"]`
+      );
+      if (!input) return;
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        input.click();
+      });
+      input.addEventListener("change", () => {
+        const file = input.files && input.files[0];
+        if (file) {
+          insertImageIntoEditor(editorId, file);
+        }
+        input.value = "";
+      });
+    });
+  });
+
   addQuestionBtn.addEventListener("click", (e) => {
     e.preventDefault();
     handleAddQuestion();
