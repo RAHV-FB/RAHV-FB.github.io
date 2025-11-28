@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>IB Question Entry – Web</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="page-header">
+        <h1>IB Question Entry – Web</h1>
+        <p class="subtitle">
+          Enter IB-style questions, then download an Excel file when you are finished.
+        </p>
+      </header>
+
+      <main class="layout">
+        <section class="card">
+          <h2>Exam information</h2>
+          <div class="form-grid">
+            <label>
+              <span>Subject *</span>
+              <select id="subject">
+                <option>Eng A: Lang and Lit</option>
+                <option>Eng A: Literature</option>
+                <option>Spanish B</option>
+                <option>English B</option>
+                <option>History</option>
+                <option>Business Management</option>
+                <option>Economics</option>
+                <option>Psychology</option>
+                <option>Biology</option>
+                <option>Chemistry</option>
+                <option>Physics</option>
+                <option>ESS</option>
+                <option>Math AA: Analysis and Approaches</option>
+                <option>Math AI: Applications and Interpretations</option>
+                <option>Computer Science</option>
+                <option>Spanish A: Language and Literature</option>
+                <option>Spanish A: Literature</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Exam code (e.g. M25) *</span>
+              <input id="exam" type="text" placeholder="M25" />
+            </label>
+
+            <label>
+              <span>Section</span>
+              <select id="section">
+                <option value="">(none)</option>
+                <option value="A">A</option>
+                <option value="B">B</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Add question</h2>
+          <div class="form-grid">
+            <label>
+              <span>Path *</span>
+              <input id="q-path" type="text" placeholder="10 or 10.a.i" />
+            </label>
+
+            <label>
+              <span>Answer type *</span>
+              <select id="q-answer-type">
+                <option value="0">0 - No answer expected (context only)</option>
+                <option value="1">1 - Open text answer</option>
+                <option value="2">2 - Multiple choice</option>
+              </select>
+            </label>
+
+            <label class="checkbox-inline">
+              <input id="q-needs-context" type="checkbox" />
+              <span>Needs context (type 1)</span>
+            </label>
+
+            <label class="marks-field">
+              <span>Marks</span>
+              <input id="q-marks" type="number" min="0" max="100" value="0" />
+            </label>
+          </div>
+
+          <section class="block">
+            <div class="editor-header">
+              <span>Question text *</span>
+              <div class="editor-toolbar" data-target="q-text-editor">
+                <button type="button" class="btn tiny" data-cmd="bold">Bold</button>
+                <button type="button" class="btn tiny" data-cmd="italic">Italic</button>
+                <button
+                  type="button"
+                  class="btn tiny"
+                  data-image-target="q-text-editor"
+                >
+                  Insert image
+                </button>
+                <input
+                  type="file"
+                  accept="image/*"
+                  class="image-input"
+                  data-editor="q-text-editor"
+                  hidden
+                />
+              </div>
+            </div>
+            <div
+              id="q-text-editor"
+              class="rich-editor"
+              contenteditable="true"
+              data-placeholder="Question text"
+            ></div>
+          </section>
+
+          <section class="block">
+            <div class="editor-header">
+              <span>Mark scheme (required for types 1 and 2)</span>
+              <div class="editor-toolbar" data-target="q-mark-editor">
+                <button type="button" class="btn tiny" data-cmd="bold">Bold</button>
+                <button type="button" class="btn tiny" data-cmd="italic">Italic</button>
+                <button
+                  type="button"
+                  class="btn tiny"
+                  data-image-target="q-mark-editor"
+                >
+                  Insert image
+                </button>
+                <input
+                  type="file"
+                  accept="image/*"
+                  class="image-input"
+                  data-editor="q-mark-editor"
+                  hidden
+                />
+              </div>
+            </div>
+            <div
+              id="q-mark-editor"
+              class="rich-editor"
+              contenteditable="true"
+              data-placeholder="Mark scheme text"
+            ></div>
+          </section>
+
+          <div class="actions-row">
+            <button id="add-question" class="btn primary">Add question</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Current questions</h2>
+          <p id="questions-empty" class="muted">
+            No questions added yet.
+          </p>
+          <div class="table-wrapper" aria-live="polite">
+            <table id="questions-table" class="questions-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Path</th>
+                  <th>Answer type</th>
+                  <th>Question</th>
+                  <th>Marks</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div class="actions-row">
+            <button id="download-excel" class="btn success" disabled>
+              Download Excel
+            </button>
+            <button id="clear-all" class="btn danger" disabled>
+              Clear all entries
+            </button>
+            <span id="status" class="status-text"></span>
+          </div>
+        </section>
+      </main>
+
+      <footer class="page-footer">
+        <small>
+          Frontend is static and can be hosted on GitHub Pages. Configure the
+          backend URL in <code>script.js</code>.
+        </small>
+      </footer>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+  </html>
+
+
