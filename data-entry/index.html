@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>IB Question Entry – Web</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="page-header">
+        <h1>IB Question Entry – Web</h1>
+        <p class="subtitle">
+          100% browser-based IB question entry with rich text, images, sets and CSV export.
+        </p>
+      </header>
+
+      <main class="layout">
+        <!-- Exam metadata -->
+        <section class="card">
+          <h2>Exam information</h2>
+          <div class="form-grid">
+            <label>
+              <span>Subject *</span>
+              <select id="subject">
+                <option>Eng A: Lang and Lit</option>
+                <option>Eng A: Literature</option>
+                <option>Spanish B</option>
+                <option>English B</option>
+                <option>History</option>
+                <option>Business Management</option>
+                <option>Economics</option>
+                <option>Psychology</option>
+                <option>Biology</option>
+                <option>Chemistry</option>
+                <option>Physics</option>
+                <option>ESS</option>
+                <option>Math AA: Analysis and Approaches</option>
+                <option>Math AI: Applications and Interpretations</option>
+                <option>Computer Science</option>
+                <option>Spanish A: Language and Literature</option>
+                <option>Spanish A: Literature</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Exam code (e.g. M25) *</span>
+              <input id="exam" type="text" placeholder="M25" />
+            </label>
+          </div>
+          <p class="muted small">
+            Exam code must start with M or N followed by two digits (e.g. M22, N23).
+          </p>
+        </section>
+
+        <!-- Question sets -->
+        <section class="card">
+          <h2>Question sets</h2>
+          <div class="sets-layout">
+            <div class="sets-list-container">
+              <div class="sets-header">
+                <span>Sets</span>
+                <button id="btn-new-set" class="btn tiny primary">New set</button>
+              </div>
+              <ul id="sets-list" class="sets-list"></ul>
+            </div>
+
+            <div class="sets-actions">
+              <button id="btn-edit-set" class="btn tiny">Edit selected set</button>
+              <button id="btn-delete-set" class="btn tiny danger">
+                Delete selected set
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Question editor -->
+        <section class="card">
+          <h2 id="question-form-title">Add question</h2>
+          <div class="form-grid">
+            <label>
+              <span>Current set *</span>
+              <select id="q-set-select"></select>
+            </label>
+
+            <label>
+              <span>Path *</span>
+              <input id="q-path" type="text" placeholder="10 or 10.a.i" />
+            </label>
+
+            <label>
+              <span>Answer type *</span>
+              <select id="q-answer-type">
+                <option value="0">0 - No answer expected (context only)</option>
+                <option value="1">1 - Open text answer</option>
+                <option value="2">2 - Multiple choice</option>
+              </select>
+            </label>
+
+            <label class="checkbox-inline">
+              <input id="q-needs-context" type="checkbox" />
+              <span>Needs context (type 1)</span>
+            </label>
+
+            <label class="marks-field">
+              <span>Marks *</span>
+              <input id="q-marks" type="number" min="0" max="100" value="0" />
+            </label>
+          </div>
+
+          <section class="block">
+            <div class="editor-header">
+              <span>Question text *</span>
+              <div class="editor-toolbar" data-target="q-text-editor">
+                <button type="button" class="btn tiny" data-cmd="bold">Bold</button>
+                <button type="button" class="btn tiny" data-cmd="italic">
+                  Italic
+                </button>
+                <button type="button" class="btn tiny" data-cmd="monospace">
+                  Courier
+                </button>
+                <button type="button" class="btn tiny" data-cmd="normal">
+                  Normal
+                </button>
+                <button
+                  type="button"
+                  class="btn tiny"
+                  data-image-target="q-text-editor"
+                >
+                  Insert image
+                </button>
+                <input
+                  type="file"
+                  accept="image/*"
+                  class="image-input"
+                  data-editor="q-text-editor"
+                  hidden
+                />
+              </div>
+            </div>
+            <div
+              id="q-text-editor"
+              class="rich-editor"
+              contenteditable="true"
+              data-placeholder="Question text"
+            ></div>
+          </section>
+
+          <section class="block">
+            <div class="editor-header">
+              <span>Mark scheme (required for types 1 and 2)</span>
+              <div class="editor-toolbar" data-target="q-mark-editor">
+                <button type="button" class="btn tiny" data-cmd="bold">Bold</button>
+                <button type="button" class="btn tiny" data-cmd="italic">
+                  Italic
+                </button>
+                <button type="button" class="btn tiny" data-cmd="monospace">
+                  Courier
+                </button>
+                <button type="button" class="btn tiny" data-cmd="normal">
+                  Normal
+                </button>
+                <button
+                  type="button"
+                  class="btn tiny"
+                  data-image-target="q-mark-editor"
+                >
+                  Insert image
+                </button>
+                <input
+                  type="file"
+                  accept="image/*"
+                  class="image-input"
+                  data-editor="q-mark-editor"
+                  hidden
+                />
+              </div>
+            </div>
+            <div
+              id="q-mark-editor"
+              class="rich-editor"
+              contenteditable="true"
+              data-placeholder="Mark scheme text"
+            ></div>
+          </section>
+
+          <div class="actions-row">
+            <button id="btn-add-question" class="btn primary">Add</button>
+            <button id="btn-add-continue" class="btn">Add and continue</button>
+            <button id="btn-update-question" class="btn primary" hidden>
+              Update
+            </button>
+            <button id="btn-cancel-edit" class="btn" hidden>Cancel edit</button>
+          </div>
+        </section>
+
+        <!-- Preview tree -->
+        <section class="card">
+          <h2>Question preview</h2>
+          <p id="preview-empty" class="muted">
+            No question sets or questions yet.
+          </p>
+          <div id="preview-container" class="preview-container"></div>
+
+          <div class="actions-row">
+            <button id="btn-move-up-global" class="btn" disabled>
+              Move selected up
+            </button>
+            <button id="btn-move-down-global" class="btn" disabled>
+              Move selected down
+            </button>
+            <span class="muted small">Click a row to select it.</span>
+          </div>
+
+          <div class="actions-row">
+            <button id="btn-export-csv" class="btn success" disabled>
+              Export CSV
+            </button>
+            <button id="btn-clear-all" class="btn danger" disabled>
+              Clear all entries
+            </button>
+            <span id="status" class="status-text"></span>
+          </div>
+        </section>
+      </main>
+
+      <footer class="page-footer">
+        <small>
+          Runs entirely in the browser. Exported CSV preserves rich text as HTML
+          (including image data URIs) in <code>text_body</code> and
+          <code>mark_scheme</code>.
+        </small>
+      </footer>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+  </html>
+
+
