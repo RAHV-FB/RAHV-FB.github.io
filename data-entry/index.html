@@ -45,11 +45,11 @@
 
             <label>
               <span>Exam code (e.g. M25) *</span>
-              <input id="exam" type="text" placeholder="M25" />
+              <input id="exam" type="text" placeholder="M22... / N23..." />
             </label>
           </div>
           <p class="muted small">
-            Exam code must start with M or N followed by two digits (e.g. M22, N23).
+            Exam code must start with M or N (e.g. M22, N23, M22A, etc.).
           </p>
         </section>
 
@@ -203,18 +203,8 @@
           <div id="preview-container" class="preview-container"></div>
 
           <div class="actions-row">
-            <button id="btn-move-up-global" class="btn" disabled>
-              Move selected up
-            </button>
-            <button id="btn-move-down-global" class="btn" disabled>
-              Move selected down
-            </button>
-            <span class="muted small">Click a row to select it.</span>
-          </div>
-
-          <div class="actions-row">
-            <button id="btn-export-csv" class="btn success" disabled>
-              Export CSV
+            <button id="btn-export-excel" class="btn success" disabled>
+              Export Excel
             </button>
             <button id="btn-clear-all" class="btn danger" disabled>
               Clear all entries
@@ -226,13 +216,13 @@
 
       <footer class="page-footer">
         <small>
-          Runs entirely in the browser. Exported CSV preserves rich text as HTML
-          (including image data URIs) in <code>text_body</code> and
-          <code>mark_scheme</code>.
+          Runs entirely in the browser. Exported Excel preserves rich text formatting
+          and embedded images.
         </small>
       </footer>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
     <script src="script.js"></script>
   </body>
   </html>

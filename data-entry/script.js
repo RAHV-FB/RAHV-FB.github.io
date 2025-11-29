@@ -8,7 +8,6 @@ const state = {
   questions: [], // questions with full metadata + rich text HTML
   currentSetId: null,
   editingQuestionId: null,
-  selectedQuestionId: null,
 };
 
 // ==== DOM HELPERS ====
@@ -42,11 +41,9 @@ const cancelEditBtn = $("btn-cancel-edit");
 // Preview / export
 const previewContainerEl = $("preview-container");
 const previewEmptyEl = $("preview-empty");
-const exportCsvBtn = $("btn-export-csv");
+const exportExcelBtn = $("btn-export-excel");
 const clearAllBtn = $("btn-clear-all");
 const statusEl = $("status");
-const moveUpGlobalBtn = $("btn-move-up-global");
-const moveDownGlobalBtn = $("btn-move-down-global");
 
 // ==== UTILITIES ====
 function uuid() {
@@ -71,12 +68,6 @@ function htmlToPlainText(html) {
   return (temp.textContent || "").trim();
 }
 
-function quoteCsvField(value) {
-  const s = String(value ?? "");
-  const escaped = s.replace(/"/g, '""');
-  return `"${escaped}"`;
-}
-
 // ==== EXAM VALIDATION ====
 function validateExamInfo() {
   const subject = subjectEl.value.trim();
@@ -90,8 +81,9 @@ function validateExamInfo() {
     alert("Exam code is required.");
     return null;
   }
-  if (!/^[MN]\d{2}/.test(exam)) {
-    alert("Exam code must start with M or N followed by two digits (e.g., M22, N23).");
+  // Updated: must start with M or N, then any characters
+  if (!/^[MN]/.test(exam)) {
+    alert("Exam code must start with M or N (e.g., M22, N23, M22A, etc.).");
     return null;
   }
 
@@ -225,32 +217,58 @@ function applyEditorCommand(command, editor) {
   }
 }
 
+// Fixed image insertion: always inserts into the correct editor at cursor position
 function insertImageIntoEditor(editorId, file) {
   const editor = document.getElementById(editorId);
   if (!editor || !file) return;
+
+  // Ensure editor is focused
+  editor.focus();
 
   const reader = new FileReader();
   reader.onload = (e) => {
     const dataUrl = e.target.result;
     if (!dataUrl) return;
 
-    const fileName = file.name || "attachment";
-    const link = document.createElement("a");
-    link.href = dataUrl;
-    link.target = "_blank";
-    link.textContent = fileName;
+    // Create img element for inline display
+    const img = document.createElement("img");
+    img.src = dataUrl;
+    img.style.maxWidth = "100%";
+    img.style.height = "auto";
+    img.style.display = "block";
+    img.style.margin = "0.5rem 0";
 
+    // Get current selection/cursor
     const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) {
-      editor.appendChild(link);
-      editor.appendChild(document.createTextNode(" "));
-      return;
+    let range;
+
+    if (selection && selection.rangeCount > 0) {
+      range = selection.getRangeAt(0);
+    } else {
+      // No selection: create range at end of editor
+      range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
     }
-    const range = selection.getRangeAt(0);
+
+    // Insert image at cursor/selection
     range.deleteContents();
-    range.insertNode(link);
-    range.collapse(false);
-    range.insertNode(document.createTextNode(" "));
+    range.insertNode(img);
+
+    // Insert a line break after image for better editing
+    const br = document.createElement("br");
+    range.setStartAfter(img);
+    range.collapse(true);
+    range.insertNode(br);
+
+    // Move cursor after the break
+    range.setStartAfter(br);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    // Keep editor focused
+    editor.focus();
   };
   reader.readAsDataURL(file);
 }
@@ -338,6 +356,7 @@ function addQuestion(resetEditorsAfter = true) {
     mark_scheme: markHtml,
     needs_context: needsContext,
     exam: state.exam.exam,
+    subject: state.exam.subject,
     section: set.section,
     topic: "",
     order: nextOrder,
@@ -353,13 +372,17 @@ function addQuestion(resetEditorsAfter = true) {
   updateStatus("Question added.");
 
   if (resetEditorsAfter) {
-    qPathEl.value = "";
-    qTextEditorEl.innerHTML = "";
-    qMarkEditorEl.innerHTML = "";
-    qNeedsContextEl.checked = false;
-    qMarksEl.value = "0";
-    qPathEl.focus();
+    clearForm();
   }
+}
+
+function clearForm() {
+  qPathEl.value = "";
+  qTextEditorEl.innerHTML = "";
+  qMarkEditorEl.innerHTML = "";
+  qNeedsContextEl.checked = false;
+  qMarksEl.value = "0";
+  qPathEl.focus();
 }
 
 function loadQuestionIntoForm(question) {
@@ -374,13 +397,35 @@ function loadQuestionIntoForm(question) {
   qTextEditorEl.innerHTML = question.text_body || "";
   qMarkEditorEl.innerHTML = question.mark_scheme || "";
 
-  // Update needs_context visibility based on answer type
   updateNeedsContextVisibility();
 
+  // Show Update/Cancel, hide Add buttons
   addBtn.hidden = true;
   addContinueBtn.hidden = true;
   updateBtn.hidden = false;
   cancelEditBtn.hidden = false;
+}
+
+function copyQuestionIntoForm(question) {
+  // Copy mode: fill form but stay in Add mode
+  state.editingQuestionId = null;
+  qFormTitleEl.textContent = "Add question (copied)";
+
+  setSelectEl.value = question.set_id;
+  qPathEl.value = question.path;
+  qAnswerTypeEl.value = String(question.answer_type);
+  qNeedsContextEl.checked = !!question.needs_context;
+  qMarksEl.value = String(question.marks ?? 0);
+  qTextEditorEl.innerHTML = question.text_body || "";
+  qMarkEditorEl.innerHTML = question.mark_scheme || "";
+
+  updateNeedsContextVisibility();
+
+  // Stay in Add mode
+  addBtn.hidden = false;
+  addContinueBtn.hidden = false;
+  updateBtn.hidden = true;
+  cancelEditBtn.hidden = true;
 }
 
 function clearEditMode() {
@@ -390,11 +435,7 @@ function clearEditMode() {
   addContinueBtn.hidden = false;
   updateBtn.hidden = true;
   cancelEditBtn.hidden = true;
-  qTextEditorEl.innerHTML = "";
-  qMarkEditorEl.innerHTML = "";
-  qPathEl.value = "";
-  qNeedsContextEl.checked = false;
-  qMarksEl.value = "0";
+  clearForm();
 }
 
 function updateQuestion() {
@@ -410,7 +451,7 @@ function updateQuestion() {
   const { set, path, answerType, marks, needsContext, textHtml, markHtml } =
     validated;
 
-  // Preserve identifiers and metadata
+  // Preserve uniqueid and other metadata
   question.path = path;
   question.text_body = textHtml;
   question.answer_type = answerType;
@@ -418,6 +459,7 @@ function updateQuestion() {
   question.needs_context = needsContext;
   question.marks = marks;
   question.exam = state.exam.exam;
+  question.subject = state.exam.subject;
 
   // If moved to a different set, update set info and recalc orders
   if (question.set_id !== set.id) {
@@ -466,11 +508,6 @@ function moveQuestion(uniqueid, delta) {
   renderPreview();
 }
 
-function moveSelectedQuestion(delta) {
-  if (!state.selectedQuestionId) return;
-  moveQuestion(state.selectedQuestionId, delta);
-}
-
 function recalcOrders() {
   const bySet = {};
   state.questions.forEach((q) => {
@@ -494,13 +531,13 @@ function renderPreview() {
 
   if (!state.sets.length || !state.questions.length) {
     previewEmptyEl.style.display = "block";
-    exportCsvBtn.disabled = true;
+    exportExcelBtn.disabled = true;
     clearAllBtn.disabled = true;
     return;
   }
 
   previewEmptyEl.style.display = "none";
-  exportCsvBtn.disabled = false;
+  exportExcelBtn.disabled = false;
   clearAllBtn.disabled = false;
 
   const bySet = {};
@@ -555,10 +592,6 @@ function renderPreview() {
       tr.dataset.qid = q.uniqueid;
       tr.draggable = true;
 
-      if (q.uniqueid === state.selectedQuestionId) {
-        tr.classList.add("selected-row");
-      }
-
       const orderTd = document.createElement("td");
       orderTd.textContent = String(q.order || "");
 
@@ -597,6 +630,7 @@ function renderPreview() {
       upBtn.textContent = "↑";
       upBtn.addEventListener("click", (e) => {
         e.preventDefault();
+        e.stopPropagation();
         moveQuestion(q.uniqueid, -1);
       });
 
@@ -605,6 +639,7 @@ function renderPreview() {
       downBtn.textContent = "↓";
       downBtn.addEventListener("click", (e) => {
         e.preventDefault();
+        e.stopPropagation();
         moveQuestion(q.uniqueid, 1);
       });
 
@@ -613,7 +648,17 @@ function renderPreview() {
       editBtn.textContent = "Edit";
       editBtn.addEventListener("click", (e) => {
         e.preventDefault();
+        e.stopPropagation();
         loadQuestionIntoForm(q);
+      });
+
+      const copyBtn = document.createElement("button");
+      copyBtn.className = "btn tiny";
+      copyBtn.textContent = "Copy";
+      copyBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        copyQuestionIntoForm(q);
       });
 
       const delBtn = document.createElement("button");
@@ -621,6 +666,7 @@ function renderPreview() {
       delBtn.textContent = "Delete";
       delBtn.addEventListener("click", (e) => {
         e.preventDefault();
+        e.stopPropagation();
         deleteQuestion(q.uniqueid);
       });
 
@@ -628,6 +674,7 @@ function renderPreview() {
       actionsTd.appendChild(upBtn);
       actionsTd.appendChild(downBtn);
       actionsTd.appendChild(editBtn);
+      actionsTd.appendChild(copyBtn);
       actionsTd.appendChild(delBtn);
 
       tr.appendChild(orderTd);
@@ -637,13 +684,6 @@ function renderPreview() {
       tr.appendChild(markTd);
       tr.appendChild(marksTd);
       tr.appendChild(actionsTd);
-
-      // Row selection for global move up/down
-      tr.addEventListener("click", () => {
-        state.selectedQuestionId = q.uniqueid;
-        renderPreview();
-        updateGlobalReorderButtons();
-      });
 
       // Drag events
       tr.addEventListener("dragstart", (e) => {
@@ -712,8 +752,8 @@ function handleDropOnQuestion(targetSetId, targetQuestionId) {
   renderPreview();
 }
 
-// ==== CSV EXPORT ====
-function handleExportCsv() {
+// ==== EXCEL EXPORT WITH IMAGES AND FORMATTING ====
+async function handleExportExcel() {
   const examInfo = validateExamInfo();
   if (!examInfo) return;
   if (!state.questions.length) {
@@ -721,74 +761,275 @@ function handleExportCsv() {
     return;
   }
 
-  // Recalculate orders just in case
-  recalcOrders();
+  if (typeof ExcelJS === "undefined") {
+    alert("ExcelJS library not loaded. Please refresh the page.");
+    return;
+  }
 
-  // Group by set and sort as per spec
-  const bySet = {};
-  state.questions.forEach((q) => {
-    if (!bySet[q.set_id]) bySet[q.set_id] = [];
-    bySet[q.set_id].push(q);
-  });
-  const setsSorted = [...state.sets].sort((a, b) =>
-    a.label.localeCompare(b.label)
-  );
+  exportExcelBtn.disabled = true;
+  updateStatus("Generating Excel file...");
 
-  const header = [
-    "uniqueid",
-    "path",
-    "text_body",
-    "answer_type",
-    "mark_scheme",
-    "needs_context",
-    "exam",
-    "section",
-    "topic",
-    "order",
-    "marks",
-  ];
+  try {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Questions");
 
-  const lines = [];
-  lines.push(header.map(quoteCsvField).join(","));
+    // Recalculate orders
+    recalcOrders();
 
-  setsSorted.forEach((set) => {
-    const questions = (bySet[set.id] || []).sort(
-      (a, b) => (a.order || 0) - (b.order || 0)
-    );
-    questions.forEach((q) => {
-      const row = [
-        q.uniqueid,
-        q.path,
-        q.text_body || "",
-        q.answer_type,
-        q.mark_scheme || "",
-        String(!!q.needs_context).toLowerCase(),
-        q.exam || state.exam.exam,
-        q.section || "",
-        q.topic || "",
-        q.order ?? "",
-        q.marks ?? "",
-      ];
-      lines.push(row.map(quoteCsvField).join(","));
+    // Headers
+    worksheet.columns = [
+      { header: "uniqueid", key: "uniqueid", width: 15 },
+      { header: "path", key: "path", width: 12 },
+      { header: "text_body", key: "text_body", width: 50 },
+      { header: "answer_type", key: "answer_type", width: 12 },
+      { header: "mark_scheme", key: "mark_scheme", width: 50 },
+      { header: "needs_context", key: "needs_context", width: 12 },
+      { header: "exam", key: "exam", width: 10 },
+      { header: "subject", key: "subject", width: 20 },
+      { header: "set_label", key: "set_label", width: 15 },
+      { header: "section", key: "section", width: 10 },
+      { header: "topic", key: "topic", width: 12 },
+      { header: "order", key: "order", width: 8 },
+      { header: "marks", key: "marks", width: 8 },
+    ];
+
+    // Style header row
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
+
+    // Group by set and sort
+    const bySet = {};
+    state.questions.forEach((q) => {
+      if (!bySet[q.set_id]) bySet[q.set_id] = [];
+      bySet[q.set_id].push(q);
     });
+    const setsSorted = [...state.sets].sort((a, b) =>
+      a.label.localeCompare(b.label)
+    );
+
+    let rowNum = 2;
+    const imagePromises = [];
+
+    setsSorted.forEach((set) => {
+      const questions = (bySet[set.id] || []).sort(
+        (a, b) => (a.order || 0) - (b.order || 0)
+      );
+
+      questions.forEach((q) => {
+        const row = worksheet.getRow(rowNum);
+
+        // Basic fields
+        row.getCell("uniqueid").value = q.uniqueid;
+        row.getCell("path").value = q.path;
+        row.getCell("answer_type").value = q.answer_type;
+        row.getCell("needs_context").value = String(!!q.needs_context).toLowerCase();
+        row.getCell("exam").value = q.exam || state.exam.exam;
+        row.getCell("subject").value = q.subject || state.exam.subject;
+        row.getCell("set_label").value = q.set_label || "";
+        row.getCell("section").value = q.section || "";
+        row.getCell("topic").value = q.topic || "";
+        row.getCell("order").value = q.order ?? "";
+        row.getCell("marks").value = q.marks ?? "";
+
+        // Process text_body with formatting and images
+        const textCell = row.getCell("text_body");
+        processRichTextCell(textCell, q.text_body || "", imagePromises, rowNum, 3, worksheet);
+
+        // Process mark_scheme with formatting and images
+        const markCell = row.getCell("mark_scheme");
+        processRichTextCell(markCell, q.mark_scheme || "", imagePromises, rowNum, 4, worksheet);
+
+        // Set row height for images
+        row.height = 100;
+
+        rowNum++;
+      });
+    });
+
+    // Wait for all images to be processed
+    await Promise.all(imagePromises);
+
+    // Generate file
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+
+    const examClean = (state.exam.exam || "questions").replace(/\s+/g, "_");
+    const filename = `${examClean}_questions.xlsx`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    updateStatus("Excel exported.");
+  } catch (err) {
+    console.error("Export error:", err);
+    alert("Failed to export Excel file: " + err.message);
+  } finally {
+    exportExcelBtn.disabled = false;
+  }
+}
+
+function processRichTextCell(cell, html, imagePromises, rowNum, colIndex, worksheet) {
+  if (!html) {
+    cell.value = "";
+    return;
+  }
+
+  // Parse HTML to extract text and formatting
+  const tempDiv = document.createElement("div");
+  tempDiv.innerHTML = html;
+
+  // Extract images first
+  const images = [];
+  const imgElements = tempDiv.querySelectorAll("img");
+  imgElements.forEach((img) => {
+    const src = img.getAttribute("src");
+    if (src && src.startsWith("data:image")) {
+      images.push(src);
+      // Replace img with placeholder text that includes filename hint
+      const placeholder = document.createTextNode(`[Image]`);
+      img.parentNode.replaceChild(placeholder, img);
+    }
   });
 
-  const csv = lines.join("\r\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const examClean = (state.exam.exam || "questions").replace(/\s+/g, "_");
-  const filename = `${examClean}_questions.csv`;
+  // Build rich text array with formatting
+  const richText = [];
 
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  function processNode(node, inheritedFormat = {}) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent;
+      if (text && text.trim()) {
+        richText.push({
+          text: text,
+          font: { ...inheritedFormat },
+        });
+      }
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const tagName = node.tagName.toLowerCase();
+      const newFormat = { ...inheritedFormat };
 
-  updateStatus("CSV exported.");
-  updateGlobalReorderButtons();
+      if (tagName === "b" || tagName === "strong") {
+        newFormat.bold = true;
+      } else if (tagName === "i" || tagName === "em") {
+        newFormat.italic = true;
+      } else if (tagName === "br") {
+        richText.push({ text: "\n", font: inheritedFormat });
+      } else if (tagName === "p") {
+        if (richText.length > 0) {
+          richText.push({ text: "\n", font: inheritedFormat });
+        }
+      }
+
+      // Check for monospace style
+      const style = node.getAttribute("style") || "";
+      if (style.includes("Courier") || style.includes("monospace")) {
+        newFormat.name = "Courier New";
+      }
+
+      Array.from(node.childNodes).forEach((child) => {
+        processNode(child, newFormat);
+      });
+    }
+  }
+
+  // Process all child nodes
+  Array.from(tempDiv.childNodes).forEach((child) => {
+    processNode(child);
+  });
+
+  // If we have rich text, use it; otherwise use plain text
+  if (richText.length > 0) {
+    // Merge consecutive text nodes with same formatting
+    const merged = [];
+    let current = null;
+    richText.forEach((rt) => {
+      const formatKey = JSON.stringify(rt.font || {});
+      if (current && current.formatKey === formatKey) {
+        current.text += rt.text;
+      } else {
+        if (current) merged.push({ text: current.text, font: current.font });
+        current = { text: rt.text, font: rt.font || {}, formatKey };
+      }
+    });
+    if (current) merged.push({ text: current.text, font: current.font });
+
+    cell.value = { richText: merged };
+  } else {
+    // Fallback to plain text with line breaks
+    let text = tempDiv.textContent || "";
+    text = text.replace(/\n\s*\n/g, "\n"); // Normalize multiple newlines
+    cell.value = text;
+  }
+
+  // Add images to worksheet (positioned near the cell)
+  images.forEach((dataUrl, idx) => {
+    const promise = addImageToWorksheet(worksheet, dataUrl, rowNum, colIndex, idx);
+    imagePromises.push(promise);
+  });
+
+  // Enable word wrap and set alignment
+  cell.alignment = { wrapText: true, vertical: "top" };
+  cell.row.height = Math.max(cell.row.height || 60, images.length > 0 ? 120 : 60);
+}
+
+async function addImageToWorksheet(worksheet, dataUrl, rowNum, colIndex, imageIndex) {
+  try {
+    // Convert data URL to buffer
+    const base64Data = dataUrl.split(",")[1];
+    if (!base64Data) return;
+
+    const binaryString = atob(base64Data);
+    const imageBuffer = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      imageBuffer[i] = binaryString.charCodeAt(i);
+    }
+
+    // Get image dimensions
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = dataUrl;
+    });
+
+    // Add image to workbook
+    const imageId = worksheet.workbook.addImage({
+      buffer: imageBuffer,
+      extension: "png",
+    });
+
+    // Calculate position: place image in the cell area
+    // ExcelJS uses 0-based column indices and row indices
+    const col = colIndex - 1; // Convert to 0-based
+    const row = rowNum - 1; // Convert to 0-based
+
+    // Scale image to fit (max 200px height, maintain aspect ratio)
+    const maxHeight = 200;
+    const scale = Math.min(1, maxHeight / img.height);
+    const width = img.width * scale;
+    const height = img.height * scale;
+
+    // Position image: offset slightly to the right of text, stacked if multiple
+    const xOffset = imageIndex * (width + 10); // Stack horizontally with spacing
+
+    worksheet.addImage(imageId, {
+      tl: { col: col, row: row },
+      ext: { width: width, height: height },
+    });
+  } catch (err) {
+    console.warn("Failed to add image to worksheet:", err);
+  }
 }
 
 // ==== CLEAR ALL ====
@@ -801,12 +1042,12 @@ function handleClearAll() {
   state.sets = [];
   state.questions = [];
   state.currentSetId = null;
+  state.editingQuestionId = null;
   renderSetsList();
   refreshSetSelect();
   renderPreview();
+  clearEditMode();
   updateStatus("All entries cleared.");
-  state.selectedQuestionId = null;
-  updateGlobalReorderButtons();
 }
 
 // ==== STATUS ====
@@ -818,12 +1059,6 @@ function updateStatus(message) {
   const count = state.questions.length;
   const setCount = state.sets.length;
   statusEl.textContent = `${setCount} set(s) | ${count} question(s) entered`;
-}
-
-function updateGlobalReorderButtons() {
-  const hasSelection = !!state.selectedQuestionId;
-  moveUpGlobalBtn.disabled = !hasSelection;
-  moveDownGlobalBtn.disabled = !hasSelection;
 }
 
 function updateNeedsContextVisibility() {
@@ -871,6 +1106,25 @@ function init() {
     });
   });
 
+  // Drag and drop for editors
+  [qTextEditorEl, qMarkEditorEl].forEach((editor) => {
+    editor.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    editor.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        const file = files[0];
+        if (file.type.startsWith("image/")) {
+          insertImageIntoEditor(editor.id, file);
+        }
+      }
+    });
+  });
+
   // Sets
   newSetBtn.addEventListener("click", (e) => {
     e.preventDefault();
@@ -910,31 +1164,19 @@ function init() {
   });
 
   // Export & clear
-  exportCsvBtn.addEventListener("click", (e) => {
+  exportExcelBtn.addEventListener("click", (e) => {
     e.preventDefault();
-    handleExportCsv();
+    handleExportExcel();
   });
   clearAllBtn.addEventListener("click", (e) => {
     e.preventDefault();
     handleClearAll();
   });
 
-  // Global move up/down buttons
-  moveUpGlobalBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    moveSelectedQuestion(-1);
-  });
-  moveDownGlobalBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    moveSelectedQuestion(1);
-  });
-
   renderSetsList();
   refreshSetSelect();
   renderPreview();
   updateStatus();
-  updateGlobalReorderButtons();
 }
 
 document.addEventListener("DOMContentLoaded", init);
-
