@@ -237,38 +237,74 @@ function insertImageIntoEditor(editorId, file) {
     img.style.height = "auto";
     img.style.display = "block";
     img.style.margin = "0.5rem 0";
+    img.style.border = "1px solid #ddd";
+    img.style.borderRadius = "4px";
 
-    // Get current selection/cursor
+    // Get selection - ensure it's within our editor
     const selection = window.getSelection();
     let range;
 
     if (selection && selection.rangeCount > 0) {
       range = selection.getRangeAt(0);
+      // Verify the range is within our editor
+      const container = range.commonAncestorContainer;
+      if (!editor.contains(container.nodeType === Node.TEXT_NODE ? container.parentNode : container)) {
+        // Selection is outside editor, create range at end
+        range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+      }
     } else {
       // No selection: create range at end of editor
       range = document.createRange();
-      range.selectNodeContents(editor);
-      range.collapse(false);
+      if (editor.childNodes.length > 0) {
+        range.selectNodeContents(editor);
+        range.collapse(false);
+      } else {
+        // Empty editor
+        range.setStart(editor, 0);
+        range.collapse(true);
+      }
     }
 
-    // Insert image at cursor/selection
-    range.deleteContents();
-    range.insertNode(img);
+    // Set selection to this range
+    if (selection) {
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
 
-    // Insert a line break after image for better editing
-    const br = document.createElement("br");
-    range.setStartAfter(img);
-    range.collapse(true);
-    range.insertNode(br);
+    // Insert image directly at the range
+    try {
+      range.deleteContents();
+      range.insertNode(img);
+      
+      // Insert a line break after image for better editing
+      const br = document.createElement("br");
+      range.setStartAfter(img);
+      range.collapse(true);
+      range.insertNode(br);
 
-    // Move cursor after the break
-    range.setStartAfter(br);
-    range.collapse(true);
-    selection.removeAllRanges();
-    selection.addRange(range);
+      // Move cursor after the break
+      if (selection) {
+        range.setStartAfter(br);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    } catch (err) {
+      // Fallback: append to end
+      console.warn("Direct insertion failed, appending to end:", err);
+      editor.appendChild(img);
+      const br = document.createElement("br");
+      editor.appendChild(br);
+    }
 
     // Keep editor focused
     editor.focus();
+  };
+  reader.onerror = (err) => {
+    console.error("Failed to read image file:", err);
+    alert("Failed to load image file.");
   };
   reader.readAsDataURL(file);
 }
@@ -340,6 +376,12 @@ function validateQuestionInput(forUpdate = false) {
 }
 
 function addQuestion(resetEditorsAfter = true) {
+  // Ensure we're not in edit mode
+  if (state.editingQuestionId) {
+    alert("Please cancel the current edit or update the question first.");
+    return;
+  }
+
   const validated = validateQuestionInput(false);
   if (!validated) return;
   const { set, path, answerType, marks, needsContext, textHtml, markHtml } =
@@ -367,6 +409,10 @@ function addQuestion(resetEditorsAfter = true) {
 
   state.questions.push(question);
   state.currentSetId = set.id;
+  
+  // Recalculate orders to ensure they're contiguous
+  recalcOrders();
+  
   refreshSetSelect();
   renderPreview();
   updateStatus("Question added.");
@@ -439,9 +485,14 @@ function clearEditMode() {
 }
 
 function updateQuestion() {
-  if (!state.editingQuestionId) return;
+  if (!state.editingQuestionId) {
+    alert("No question is being edited.");
+    return;
+  }
+  
   const question = state.questions.find((q) => q.uniqueid === state.editingQuestionId);
   if (!question) {
+    alert("Question not found.");
     clearEditMode();
     return;
   }
@@ -451,7 +502,10 @@ function updateQuestion() {
   const { set, path, answerType, marks, needsContext, textHtml, markHtml } =
     validated;
 
-  // Preserve uniqueid and other metadata
+  // Preserve uniqueid - never change it
+  const oldSetId = question.set_id;
+  
+  // Update all fields
   question.path = path;
   question.text_body = textHtml;
   question.answer_type = answerType;
@@ -466,6 +520,9 @@ function updateQuestion() {
     question.set_id = set.id;
     question.set_label = set.label;
     question.section = set.section;
+    recalcOrders();
+  } else {
+    // Even if set didn't change, recalc to ensure order is correct
     recalcOrders();
   }
 
@@ -883,6 +940,7 @@ async function handleExportExcel() {
 function processRichTextCell(cell, html, imagePromises, rowNum, colIndex, worksheet) {
   if (!html) {
     cell.value = "";
+    cell.alignment = { wrapText: true, vertical: "top" };
     return;
   }
 
@@ -890,26 +948,29 @@ function processRichTextCell(cell, html, imagePromises, rowNum, colIndex, worksh
   const tempDiv = document.createElement("div");
   tempDiv.innerHTML = html;
 
-  // Extract images first
+  // Extract images first and store their positions
   const images = [];
   const imgElements = tempDiv.querySelectorAll("img");
-  imgElements.forEach((img) => {
+  imgElements.forEach((img, idx) => {
     const src = img.getAttribute("src");
     if (src && src.startsWith("data:image")) {
-      images.push(src);
-      // Replace img with placeholder text that includes filename hint
-      const placeholder = document.createTextNode(`[Image]`);
-      img.parentNode.replaceChild(placeholder, img);
+      images.push({ src, index: idx });
+      // Replace img with a visible placeholder that won't break text flow
+      const placeholder = document.createTextNode(` [Image ${idx + 1}] `);
+      if (img.parentNode) {
+        img.parentNode.replaceChild(placeholder, img);
+      }
     }
   });
 
-  // Build rich text array with formatting
+  // Build rich text array with formatting, preserving line breaks
   const richText = [];
 
   function processNode(node, inheritedFormat = {}) {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent;
-      if (text && text.trim()) {
+      if (text) {
+        // Preserve all text, including whitespace and newlines
         richText.push({
           text: text,
           font: { ...inheritedFormat },
@@ -924,19 +985,28 @@ function processRichTextCell(cell, html, imagePromises, rowNum, colIndex, worksh
       } else if (tagName === "i" || tagName === "em") {
         newFormat.italic = true;
       } else if (tagName === "br") {
+        // Explicit line break
         richText.push({ text: "\n", font: inheritedFormat });
       } else if (tagName === "p") {
+        // Paragraph: add newline before (except first)
         if (richText.length > 0) {
+          richText.push({ text: "\n", font: inheritedFormat });
+        }
+      } else if (tagName === "div") {
+        // Divs might contain line breaks
+        if (richText.length > 0 && node.previousSibling) {
           richText.push({ text: "\n", font: inheritedFormat });
         }
       }
 
       // Check for monospace style
       const style = node.getAttribute("style") || "";
-      if (style.includes("Courier") || style.includes("monospace")) {
+      if (style.includes("Courier") || style.includes("monospace") || 
+          style.includes("font-family") && (style.includes("Courier") || style.includes("monospace"))) {
         newFormat.name = "Courier New";
       }
 
+      // Process child nodes
       Array.from(node.childNodes).forEach((child) => {
         processNode(child, newFormat);
       });
@@ -948,46 +1018,74 @@ function processRichTextCell(cell, html, imagePromises, rowNum, colIndex, worksh
     processNode(child);
   });
 
-  // If we have rich text, use it; otherwise use plain text
-  if (richText.length > 0) {
-    // Merge consecutive text nodes with same formatting
-    const merged = [];
-    let current = null;
-    richText.forEach((rt) => {
-      const formatKey = JSON.stringify(rt.font || {});
-      if (current && current.formatKey === formatKey) {
-        current.text += rt.text;
-      } else {
-        if (current) merged.push({ text: current.text, font: current.font });
-        current = { text: rt.text, font: rt.font || {}, formatKey };
+  // Merge consecutive text nodes with same formatting
+  const merged = [];
+  let current = null;
+  
+  richText.forEach((rt) => {
+    const formatKey = JSON.stringify(rt.font || {});
+    if (current && current.formatKey === formatKey) {
+      current.text += rt.text;
+    } else {
+      if (current) {
+        merged.push({ text: current.text, font: current.font });
       }
-    });
-    if (current) merged.push({ text: current.text, font: current.font });
+      current = { 
+        text: rt.text, 
+        font: rt.font || {}, 
+        formatKey 
+      };
+    }
+  });
+  if (current) {
+    merged.push({ text: current.text, font: current.font });
+  }
 
-    cell.value = { richText: merged };
+  // Set cell value with rich text if we have formatting, otherwise plain text
+  if (merged.length > 0) {
+    // Check if we have any formatting
+    const hasFormatting = merged.some(rt => 
+      rt.font.bold || rt.font.italic || rt.font.name
+    );
+    
+    if (hasFormatting) {
+      cell.value = { richText: merged };
+    } else {
+      // No formatting, just use plain text with newlines
+      const plainText = merged.map(rt => rt.text).join("");
+      cell.value = plainText;
+    }
   } else {
-    // Fallback to plain text with line breaks
+    // Fallback: extract plain text with line breaks
     let text = tempDiv.textContent || "";
-    text = text.replace(/\n\s*\n/g, "\n"); // Normalize multiple newlines
+    // Preserve newlines
+    text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     cell.value = text;
   }
 
-  // Add images to worksheet (positioned near the cell)
-  images.forEach((dataUrl, idx) => {
-    const promise = addImageToWorksheet(worksheet, dataUrl, rowNum, colIndex, idx);
+  // Add images to worksheet (positioned in/next to the cell)
+  images.forEach((imgData, idx) => {
+    const promise = addImageToWorksheet(worksheet, imgData.src, rowNum, colIndex, idx);
     imagePromises.push(promise);
   });
 
   // Enable word wrap and set alignment
   cell.alignment = { wrapText: true, vertical: "top" };
-  cell.row.height = Math.max(cell.row.height || 60, images.length > 0 ? 120 : 60);
+  
+  // Set row height based on content and images
+  const baseHeight = 60;
+  const imageHeight = images.length > 0 ? 150 : 0;
+  cell.row.height = Math.max(cell.row.height || baseHeight, baseHeight + imageHeight);
 }
 
 async function addImageToWorksheet(worksheet, dataUrl, rowNum, colIndex, imageIndex) {
   try {
     // Convert data URL to buffer
     const base64Data = dataUrl.split(",")[1];
-    if (!base64Data) return;
+    if (!base64Data) {
+      console.warn("No base64 data in image URL");
+      return;
+    }
 
     const binaryString = atob(base64Data);
     const imageBuffer = new Uint8Array(binaryString.length);
@@ -999,7 +1097,10 @@ async function addImageToWorksheet(worksheet, dataUrl, rowNum, colIndex, imageIn
     const img = new Image();
     await new Promise((resolve, reject) => {
       img.onload = resolve;
-      img.onerror = reject;
+      img.onerror = () => {
+        console.warn("Failed to load image for dimensions");
+        reject(new Error("Image load failed"));
+      };
       img.src = dataUrl;
     });
 
@@ -1011,24 +1112,27 @@ async function addImageToWorksheet(worksheet, dataUrl, rowNum, colIndex, imageIn
 
     // Calculate position: place image in the cell area
     // ExcelJS uses 0-based column indices and row indices
-    const col = colIndex - 1; // Convert to 0-based
-    const row = rowNum - 1; // Convert to 0-based
+    const col = colIndex - 1; // Convert to 0-based (colIndex is 1-based from processRichTextCell)
+    const row = rowNum - 1; // Convert to 0-based (rowNum is 1-based)
 
     // Scale image to fit (max 200px height, maintain aspect ratio)
     const maxHeight = 200;
-    const scale = Math.min(1, maxHeight / img.height);
-    const width = img.width * scale;
-    const height = img.height * scale;
+    const maxWidth = 300;
+    let scale = Math.min(1, maxHeight / img.height, maxWidth / img.width);
+    const width = Math.round(img.width * scale);
+    const height = Math.round(img.height * scale);
 
-    // Position image: offset slightly to the right of text, stacked if multiple
-    const xOffset = imageIndex * (width + 10); // Stack horizontally with spacing
+    // Position image: place it in the cell, offset vertically for multiple images
+    const yOffset = imageIndex * (height + 5); // Stack vertically with spacing
 
     worksheet.addImage(imageId, {
       tl: { col: col, row: row },
       ext: { width: width, height: height },
+      editAs: "oneCell", // Anchor to one cell
     });
   } catch (err) {
     console.warn("Failed to add image to worksheet:", err);
+    // Don't throw - continue with other images
   }
 }
 
@@ -1172,6 +1276,9 @@ function init() {
     e.preventDefault();
     handleClearAll();
   });
+
+  // Initialize button visibility (Add mode by default)
+  clearEditMode();
 
   renderSetsList();
   refreshSetSelect();
