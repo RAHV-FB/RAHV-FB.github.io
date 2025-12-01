@@ -1142,8 +1142,8 @@ function initInstructionsToggle() {
 
   // Set initial state
   instructionsContent.style.display = isExpanded ? "block" : "none";
-  // Arrow up with "CLOSE INSTRUCTION" when open, arrow down with "VIEW INSTRUCTIONS" when closed
-  instructionsToggleIcon.textContent = isExpanded ? "▲ CLOSE INSTRUCTION" : "▼ VIEW INSTRUCTIONS";
+  // Arrow up with "CLOSE INSTRUCTIONS" when open, arrow down with "VIEW INSTRUCTIONS" when closed
+  instructionsToggleIcon.textContent = isExpanded ? "▲ CLOSE INSTRUCTIONS" : "▼ VIEW INSTRUCTIONS";
 
   // Prevent scroll when instructions are expanded on load
   if (isExpanded) {
