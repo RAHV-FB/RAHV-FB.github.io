@@ -45,6 +45,54 @@ const exportExcelBtn = $("btn-export-excel");
 const clearAllBtn = $("btn-clear-all");
 const statusEl = $("status");
 
+// ==== LOCALSTORAGE PERSISTENCE ====
+const STORAGE_KEY = "ib_question_entry_state";
+const INSTRUCTIONS_STATE_KEY = "ib_question_entry_instructions_expanded";
+
+function saveStateToStorage() {
+  try {
+    const dataToSave = {
+      exam: state.exam,
+      sets: state.sets,
+      questions: state.questions,
+      currentSetId: state.currentSetId,
+      editingQuestionId: state.editingQuestionId,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+  } catch (err) {
+    console.warn("Failed to save state to localStorage:", err);
+  }
+}
+
+function loadStateFromStorage() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return false;
+
+    const data = JSON.parse(saved);
+    if (data.exam) state.exam = data.exam;
+    if (data.sets) state.sets = data.sets;
+    if (data.questions) state.questions = data.questions;
+    if (data.currentSetId !== undefined) state.currentSetId = data.currentSetId;
+    if (data.editingQuestionId !== undefined) state.editingQuestionId = data.editingQuestionId;
+
+    return true;
+  } catch (err) {
+    console.warn("Failed to load state from localStorage:", err);
+    return false;
+  }
+}
+
+function restoreFormFromState() {
+  // Restore exam fields
+  if (state.exam.subject) {
+    subjectEl.value = state.exam.subject;
+  }
+  if (state.exam.exam) {
+    examEl.value = state.exam.exam;
+  }
+}
+
 // ==== UTILITIES ====
 function uuid() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -143,6 +191,7 @@ function handleNewSet() {
   const set = { id: uuid(), label: label.trim(), section: section.trim() };
   state.sets.push(set);
   state.currentSetId = set.id;
+  saveStateToStorage();
   renderSetsList();
   refreshSetSelect();
   renderPreview();
@@ -172,6 +221,7 @@ function handleEditSet() {
     }
   });
 
+  saveStateToStorage();
   renderSetsList();
   refreshSetSelect();
   renderPreview();
@@ -193,6 +243,7 @@ function handleDeleteSet() {
   state.questions = state.questions.filter((q) => q.set_id !== set.id);
   state.currentSetId = state.sets[0]?.id || null;
 
+  saveStateToStorage();
   renderSetsList();
   refreshSetSelect();
   renderPreview();
@@ -413,6 +464,7 @@ function addQuestion(resetEditorsAfter = true) {
   // Recalculate orders to ensure they're contiguous
   recalcOrders();
   
+  saveStateToStorage();
   refreshSetSelect();
   renderPreview();
   updateStatus("Question added.");
@@ -527,6 +579,7 @@ function updateQuestion() {
     recalcOrders();
   }
 
+  saveStateToStorage();
   renderPreview();
   updateStatus("Question updated.");
   clearEditMode();
@@ -539,6 +592,7 @@ function deleteQuestion(uniqueid) {
   if (!ok) return;
   state.questions = state.questions.filter((x) => x.uniqueid !== uniqueid);
   recalcOrders();
+  saveStateToStorage();
   renderPreview();
   updateStatus("Question deleted.");
 }
@@ -563,6 +617,7 @@ function moveQuestion(uniqueid, delta) {
     q.order = i + 1;
   });
 
+  saveStateToStorage();
   renderPreview();
 }
 
@@ -807,6 +862,7 @@ function handleDropOnQuestion(targetSetId, targetQuestionId) {
     dragged.section = set.section;
   }
 
+  saveStateToStorage();
   renderPreview();
 }
 
@@ -999,6 +1055,7 @@ function handleClearAll() {
   state.questions = [];
   state.currentSetId = null;
   state.editingQuestionId = null;
+  saveStateToStorage();
   renderSetsList();
   refreshSetSelect();
   renderPreview();
@@ -1028,8 +1085,62 @@ function updateNeedsContextVisibility() {
   }
 }
 
+// ==== INSTRUCTIONS TOGGLE ====
+function initInstructionsToggle() {
+  const instructionsHeader = document.getElementById("instructions-header");
+  const instructionsContent = document.getElementById("instructions-content");
+  const instructionsToggle = document.getElementById("instructions-toggle");
+  const instructionsToggleIcon = document.getElementById("instructions-toggle-icon");
+
+  if (!instructionsHeader || !instructionsContent || !instructionsToggle) return;
+
+  // Load saved state (default to expanded on first load)
+  const savedExpanded = localStorage.getItem(INSTRUCTIONS_STATE_KEY);
+  const isExpanded = savedExpanded === null ? true : savedExpanded === "true";
+
+  // Set initial state
+  instructionsContent.style.display = isExpanded ? "block" : "none";
+  instructionsToggleIcon.textContent = isExpanded ? "▼" : "►";
+
+  // Toggle on click
+  instructionsHeader.addEventListener("click", () => {
+    const currentlyExpanded = instructionsContent.style.display !== "none";
+    const newExpanded = !currentlyExpanded;
+    
+    instructionsContent.style.display = newExpanded ? "block" : "none";
+    instructionsToggleIcon.textContent = newExpanded ? "▼" : "►";
+    
+    // Save state
+    localStorage.setItem(INSTRUCTIONS_STATE_KEY, String(newExpanded));
+  });
+}
+
 // ==== INIT ====
 function init() {
+  // Initialize instructions toggle (must be before state load to avoid flicker)
+  initInstructionsToggle();
+
+  // Load saved state from localStorage
+  const hasSavedState = loadStateFromStorage();
+  if (hasSavedState) {
+    restoreFormFromState();
+    // Restore UI after loading state
+    renderSetsList();
+    refreshSetSelect();
+    renderPreview();
+    updateStatus();
+  }
+
+  // Auto-save exam fields when they change
+  subjectEl.addEventListener("change", () => {
+    state.exam.subject = subjectEl.value;
+    saveStateToStorage();
+  });
+  examEl.addEventListener("input", () => {
+    state.exam.exam = examEl.value;
+    saveStateToStorage();
+  });
+
   // Rich-text toolbar wiring
   document.querySelectorAll(".editor-toolbar").forEach((toolbar) => {
     const targetId = toolbar.getAttribute("data-target");
@@ -1132,10 +1243,13 @@ function init() {
   // Initialize button visibility (Add mode by default)
   clearEditMode();
 
-  renderSetsList();
-  refreshSetSelect();
-  renderPreview();
-  updateStatus();
+  // Only render if state wasn't already loaded (to avoid double render)
+  if (!hasSavedState) {
+    renderSetsList();
+    refreshSetSelect();
+    renderPreview();
+    updateStatus();
+  }
 }
 
 document.addEventListener("DOMContentLoaded", init);
