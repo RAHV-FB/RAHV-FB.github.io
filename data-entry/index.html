@@ -11,11 +11,40 @@
       <header class="page-header">
         <h1>IB Question Entry – Web</h1>
         <p class="subtitle">
-          AceDiploma.
+          100% browser-based IB question entry with rich text, images, sets and CSV export.
         </p>
       </header>
 
       <main class="layout">
+        <!-- Instructions -->
+        <section class="card">
+          <div class="instructions-header" id="instructions-header">
+            <h2>Instructions</h2>
+            <button id="instructions-toggle" class="btn tiny" aria-label="Toggle instructions">
+              <span id="instructions-toggle-icon">▼</span>
+            </button>
+          </div>
+          <div id="instructions-content" class="instructions-content">
+            <ul class="instructions-list">
+              <li><strong>Subject & Exam Code:</strong> Select a subject and enter an exam code starting with M or N (e.g., M25, N23).</li>
+              <li><strong>Create Sets:</strong> Click "New set" to create question groups. Each set can have a label (e.g., "Question 10") and optional section (A or B).</li>
+              <li><strong>Add Questions:</strong> Select a set, enter a path (e.g., "10" or "10.a.i"), choose answer type, and fill in question text and mark scheme.</li>
+              <li><strong>Rich Text:</strong> Use Bold, Italic, and Courier buttons to format text. Insert images using the "Insert image" button or drag & drop.</li>
+              <li><strong>Answer Types:</strong>
+                <ul>
+                  <li><strong>Type 0:</strong> Context only (no answer expected) - marks must be 0</li>
+                  <li><strong>Type 1:</strong> Open text answer - marks > 0, mark scheme required</li>
+                  <li><strong>Type 2:</strong> Multiple choice - marks > 0, mark scheme required</li>
+                </ul>
+              </li>
+              <li><strong>Edit/Copy:</strong> Use Edit to modify existing questions, or Copy to duplicate a question as a new entry.</li>
+              <li><strong>Reorder:</strong> Use ↑/↓ buttons or drag & drop to reorder questions within a set.</li>
+              <li><strong>Export:</strong> Click "Export CSV (HTML + images)" to download a zip file containing the CSV with HTML formatting and an images folder.</li>
+              <li><strong>Auto-save:</strong> Your work is automatically saved to browser storage. Reloading the page will restore your data.</li>
+            </ul>
+          </div>
+        </section>
+
         <!-- Exam metadata -->
         <section class="card">
           <h2>Exam information</h2>
