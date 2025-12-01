@@ -398,6 +398,44 @@ code {
   border-radius: 0.3rem;
 }
 
+.instructions-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 0;
+}
+
+.instructions-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.instructions-content {
+  margin-top: 0.75rem;
+}
+
+.instructions-list {
+  margin: 0;
+  padding-left: 1.5rem;
+  list-style-type: disc;
+  color: #374151;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.instructions-list li {
+  margin-bottom: 0.5rem;
+}
+
+.instructions-list ul {
+  margin-top: 0.25rem;
+  margin-bottom: 0.5rem;
+  padding-left: 1.25rem;
+  list-style-type: circle;
+}
+
 @media (max-width: 640px) {
   .page {
     padding: 1rem;
@@ -411,5 +449,3 @@ code {
     font-size: 1.6rem;
   }
 }
-
-
