@@ -1059,23 +1059,30 @@ function processRichTextCell(cell, html, imagePromises, rowNum, colIndex, worksh
     cell.value = text;
   }
 
-  // Add images to worksheet (positioned in/next to the cell)
+  // Add images to worksheet (positioned inside the corresponding cell)
   images.forEach((imgData, idx) => {
-    const promise = addImageToWorksheet(worksheet, imgData.src, rowNum, colIndex, idx);
+    const promise = addImageToWorksheet(
+      worksheet,
+      imgData.src,
+      rowNum,
+      colIndex,
+      idx,
+      images.length
+    );
     imagePromises.push(promise);
   });
 
   // Enable word wrap and set alignment
   cell.alignment = { wrapText: true, vertical: "top" };
   
-  // Set row height based on content and images
-  // Keep rows without images compact, make image rows taller
-  const baseHeight = 20;
-  const imageHeight = images.length > 0 ? 150 : 0;
-  cell.row.height = Math.max(cell.row.height || baseHeight, baseHeight + imageHeight);
+  // Set row height based on content and images.
+  // Keep rows without images compact; make image rows taller so images can fit *inside* the cell.
+  const baseHeight = 20; // points
+  const imageExtra = images.length > 0 ? 80 : 0; // extra points for image rows
+  cell.row.height = Math.max(cell.row.height || baseHeight, baseHeight + imageExtra);
 }
 
-async function addImageToWorksheet(worksheet, dataUrl, rowNum, colIndex, imageIndex) {
+async function addImageToWorksheet(worksheet, dataUrl, rowNum, colIndex, imageIndex, totalImagesInCell) {
   try {
     // Convert data URL to buffer
     const base64Data = dataUrl.split(",")[1];
@@ -1107,21 +1114,32 @@ async function addImageToWorksheet(worksheet, dataUrl, rowNum, colIndex, imageIn
       extension: "png",
     });
 
-    // Calculate position: place image in the cell area
-    // ExcelJS uses 0-based column indices and row indices
-    const col = colIndex - 1; // Convert to 0-based (colIndex is 1-based from processRichTextCell)
-    const row = rowNum - 1; // Convert to 0-based (rowNum is 1-based)
+    // ExcelJS uses 0-based column and row indices for anchors
+    const col = colIndex - 1;
+    const row = rowNum - 1;
 
-    // Scale image to fit (max 200px height, maintain aspect ratio)
-    const maxHeight = 200;
-    const maxWidth = 300;
-    let scale = Math.min(1, maxHeight / img.height, maxWidth / img.width);
-    const width = Math.round(img.width * scale);
-    const height = Math.round(img.height * scale);
+    // Determine cell size in pixels to ensure the image stays fully inside that cell
+    const excelColumn = worksheet.getColumn(colIndex);
+    const columnCharWidth = excelColumn.width || 10; // in "characters"
+    // Rough conversion: 1 character width ≈ 7 pixels (Excel standard is ~7.1)
+    const maxWidthPx = columnCharWidth * 7;
 
-    // Position image: place it in the cell, offset vertically for multiple images
-    const yOffset = imageIndex * (height + 5); // Stack vertically with spacing
+    const excelRow = worksheet.getRow(rowNum);
+    const rowHeightPoints = excelRow.height || 20; // default height in points
+    // 1 point ≈ 1.33 pixels
+    const rowHeightPx = rowHeightPoints * 1.33;
 
+    // If there are multiple images in the same cell, divide vertical space between them
+    const availableHeightPerImage = rowHeightPx / (totalImagesInCell || 1);
+
+    // Scale image to fit within the cell bounds while preserving aspect ratio
+    const maxWidth = maxWidthPx;
+    const maxHeight = availableHeightPerImage;
+    const scale = Math.min(1, maxWidth / img.width, maxHeight / img.height);
+    const width = Math.max(1, Math.round(img.width * scale));
+    const height = Math.max(1, Math.round(img.height * scale));
+
+    // Anchor the image to the top-left of the cell; ext keeps it inside the cell box
     worksheet.addImage(imageId, {
       tl: { col: col, row: row },
       ext: { width: width, height: height },
