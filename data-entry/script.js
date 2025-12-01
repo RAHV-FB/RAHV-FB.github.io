@@ -1092,6 +1092,11 @@ function handleClearAll() {
   state.questions = [];
   state.currentSetId = null;
   state.editingQuestionId = null;
+  // Clear exam code as well
+  state.exam.subject = "";
+  state.exam.exam = "";
+  subjectEl.value = "";
+  examEl.value = "";
   saveStateToStorage();
   renderSetsList();
   refreshSetSelect();
@@ -1137,7 +1142,16 @@ function initInstructionsToggle() {
 
   // Set initial state
   instructionsContent.style.display = isExpanded ? "block" : "none";
-  instructionsToggleIcon.textContent = isExpanded ? "▼" : "►";
+  // Arrow up with "CLOSE INSTRUCTION" when open, arrow down with "VIEW INSTRUCTIONS" when closed
+  instructionsToggleIcon.textContent = isExpanded ? "▲ CLOSE INSTRUCTION" : "▼ VIEW INSTRUCTIONS";
+
+  // Prevent scroll when instructions are expanded on load
+  if (isExpanded) {
+    // Use setTimeout to ensure DOM is ready, then scroll to top
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }, 0);
+  }
 
   // Toggle on click
   instructionsHeader.addEventListener("click", () => {
@@ -1145,7 +1159,8 @@ function initInstructionsToggle() {
     const newExpanded = !currentlyExpanded;
     
     instructionsContent.style.display = newExpanded ? "block" : "none";
-    instructionsToggleIcon.textContent = newExpanded ? "▼" : "►";
+    // Arrow up with "CLOSE INSTRUCTION" when open, arrow down with "VIEW INSTRUCTIONS" when closed
+    instructionsToggleIcon.textContent = newExpanded ? "▲ CLOSE INSTRUCTION" : "▼ VIEW INSTRUCTIONS";
     
     // Save state
     localStorage.setItem(INSTRUCTIONS_STATE_KEY, String(newExpanded));
