@@ -455,6 +455,7 @@ function loadQuestionIntoForm(question) {
 function copyQuestionIntoForm(question) {
   // Copy mode: fill form but stay in Add mode
   state.editingQuestionId = null;
+  
   qFormTitleEl.textContent = "Add question (copied)";
 
   setSelectEl.value = question.set_id;
@@ -809,7 +810,7 @@ function handleDropOnQuestion(targetSetId, targetQuestionId) {
   renderPreview();
 }
 
-// ==== EXCEL EXPORT WITH IMAGES AND FORMATTING ====
+// ==== CSV EXPORT WITH HTML + IMAGE PLACEHOLDERS ====
 async function handleExportExcel() {
   const examInfo = validateExamInfo();
   if (!examInfo) return;
@@ -818,8 +819,8 @@ async function handleExportExcel() {
     return;
   }
 
-  if (typeof ExcelJS === "undefined") {
-    alert("ExcelJS library not loaded. Please refresh the page.");
+  if (typeof JSZip === "undefined") {
+    alert("JSZip library not loaded. Please refresh the page.");
     return;
   }
 
@@ -827,36 +828,26 @@ async function handleExportExcel() {
   updateStatus("Generating Excel file...");
 
   try {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Questions");
+    const zip = new JSZip();
 
     // Recalculate orders
     recalcOrders();
 
-    // Headers
-    worksheet.columns = [
-      { header: "uniqueid", key: "uniqueid", width: 15 },
-      { header: "path", key: "path", width: 12 },
-      { header: "text_body", key: "text_body", width: 50 },
-      { header: "answer_type", key: "answer_type", width: 12 },
-      { header: "mark_scheme", key: "mark_scheme", width: 50 },
-      { header: "needs_context", key: "needs_context", width: 12 },
-      { header: "exam", key: "exam", width: 10 },
-      { header: "subject", key: "subject", width: 20 },
-      { header: "set_label", key: "set_label", width: 15 },
-      { header: "section", key: "section", width: 10 },
-      { header: "topic", key: "topic", width: 12 },
-      { header: "order", key: "order", width: 8 },
-      { header: "marks", key: "marks", width: 8 },
+    // CSV headers (no set_label column)
+    const headers = [
+      "uniqueid",
+      "path",
+      "text_body",
+      "answer_type",
+      "mark_scheme",
+      "needs_context",
+      "exam",
+      "subject",
+      "section",
+      "topic",
+      "order",
+      "marks",
     ];
-
-    // Style header row
-    worksheet.getRow(1).font = { bold: true };
-    worksheet.getRow(1).fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FFE0E0E0" },
-    };
 
     // Group by set and sort
     const bySet = {};
@@ -868,8 +859,8 @@ async function handleExportExcel() {
       a.label.localeCompare(b.label)
     );
 
-    let rowNum = 2;
-    const imagePromises = [];
+    const rows = [];
+    rows.push(headers);
 
     setsSorted.forEach((set) => {
       const questions = (bySet[set.id] || []).sort(
@@ -877,278 +868,124 @@ async function handleExportExcel() {
       );
 
       questions.forEach((q) => {
-        const row = worksheet.getRow(rowNum);
+        // Transform HTML to keep formatting and replace each <img> with a placeholder
+        // like //image:UUID..., while saving the decoded image to the zip.
+        const textHtml = transformHtmlForCsv(q.text_body || "", zip);
+        const markHtml = transformHtmlForCsv(q.mark_scheme || "", zip);
 
-        // Basic fields
-        row.getCell("uniqueid").value = q.uniqueid;
-        row.getCell("path").value = q.path;
-        row.getCell("answer_type").value = q.answer_type;
-        row.getCell("needs_context").value = String(!!q.needs_context).toLowerCase();
-        row.getCell("exam").value = q.exam || state.exam.exam;
-        row.getCell("subject").value = q.subject || state.exam.subject;
-        row.getCell("set_label").value = q.set_label || "";
-        row.getCell("section").value = q.section || "";
-        row.getCell("topic").value = q.topic || "";
-        row.getCell("order").value = q.order ?? "";
-        row.getCell("marks").value = q.marks ?? "";
-
-        // Process text_body with formatting and images
-        const textCell = row.getCell("text_body");
-        processRichTextCell(textCell, q.text_body || "", imagePromises, rowNum, 3, worksheet);
-
-        // Process mark_scheme with formatting and images
-        const markCell = row.getCell("mark_scheme");
-        processRichTextCell(markCell, q.mark_scheme || "", imagePromises, rowNum, 4, worksheet);
-
-        rowNum++;
+        const row = [
+          q.uniqueid,
+          q.path,
+          textHtml,
+          q.answer_type,
+          markHtml,
+          String(!!q.needs_context).toLowerCase(),
+          q.exam || state.exam.exam,
+          q.subject || state.exam.subject,
+          q.section || "",
+          q.topic || "",
+          q.order ?? "",
+          q.marks ?? "",
+        ];
+        rows.push(row);
       });
     });
 
-    // Wait for all images to be processed
-    await Promise.all(imagePromises);
-
-    // Generate file
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    });
+    // Build CSV content (quote all fields, preserve HTML)
+    const csvLines = rows.map((row) =>
+      row
+        .map((value) => {
+          const str = value == null ? "" : String(value);
+          const escaped = str.replace(/"/g, '""');
+          return `"${escaped}"`;
+        })
+        .join(",")
+    );
+    const csvContent = csvLines.join("\r\n");
 
     const examClean = (state.exam.exam || "questions").replace(/\s+/g, "_");
-    const filename = `${examClean}_questions.xlsx`;
+    const csvFilename = `${examClean}_questions.csv`;
 
-    const url = URL.createObjectURL(blob);
+    // Put CSV inside zip
+    zip.file(csvFilename, csvContent);
+
+    // Generate zip (CSV + images folder)
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const zipFilename = `${examClean}_questions_with_images.zip`;
+
+    const url = URL.createObjectURL(zipBlob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = filename;
+    a.download = zipFilename;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
 
-    updateStatus("Excel exported.");
+    updateStatus("CSV + images exported.");
   } catch (err) {
     console.error("Export error:", err);
-    alert("Failed to export Excel file: " + err.message);
+    alert("Failed to export CSV file: " + err.message);
   } finally {
     exportExcelBtn.disabled = false;
   }
 }
 
-function processRichTextCell(cell, html, imagePromises, rowNum, colIndex, worksheet) {
-  if (!html) {
-    cell.value = "";
-    cell.alignment = { wrapText: true, vertical: "top" };
-    return;
-  }
+/**
+ * Transform HTML for CSV export:
+ * - Keep HTML tags so bold/italic/paragraphs are preserved.
+ * - Replace each inline <img src="data:..."> with a unique placeholder string
+ *   like //image:UUID...
+ * - Decode each image and add it to the zip under images//image:UUID...
+ */
+function transformHtmlForCsv(html, zip) {
+  if (!html) return "";
 
-  // Parse HTML to extract text and formatting
   const tempDiv = document.createElement("div");
   tempDiv.innerHTML = html;
 
-  // Extract images first and store their positions
-  const images = [];
   const imgElements = tempDiv.querySelectorAll("img");
-  imgElements.forEach((img, idx) => {
-    const src = img.getAttribute("src");
-    if (src && src.startsWith("data:image")) {
-      images.push({ src, index: idx });
-      // Remove the <img> from the HTML so no placeholder text appears in the cell
-      if (img.parentNode) {
-        img.parentNode.removeChild(img);
-      }
-    }
-  });
-
-  // Build rich text array with formatting, preserving line breaks
-  const richText = [];
-
-  function processNode(node, inheritedFormat = {}) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent;
-      if (text) {
-        // Preserve all text, including whitespace and newlines
-        richText.push({
-          text: text,
-          font: { ...inheritedFormat },
-        });
-      }
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const tagName = node.tagName.toLowerCase();
-      const newFormat = { ...inheritedFormat };
-
-      if (tagName === "b" || tagName === "strong") {
-        newFormat.bold = true;
-      } else if (tagName === "i" || tagName === "em") {
-        newFormat.italic = true;
-      } else if (tagName === "br") {
-        // Explicit line break
-        richText.push({ text: "\n", font: inheritedFormat });
-      } else if (tagName === "p") {
-        // Paragraph: add newline before (except first)
-        if (richText.length > 0) {
-          richText.push({ text: "\n", font: inheritedFormat });
-        }
-      } else if (tagName === "div") {
-        // Divs might contain line breaks
-        if (richText.length > 0 && node.previousSibling) {
-          richText.push({ text: "\n", font: inheritedFormat });
-        }
-      }
-
-      // Check for monospace style
-      const style = node.getAttribute("style") || "";
-      if (style.includes("Courier") || style.includes("monospace") || 
-          style.includes("font-family") && (style.includes("Courier") || style.includes("monospace"))) {
-        newFormat.name = "Courier New";
-      }
-
-      // Process child nodes
-      Array.from(node.childNodes).forEach((child) => {
-        processNode(child, newFormat);
-      });
-    }
-  }
-
-  // Process all child nodes
-  Array.from(tempDiv.childNodes).forEach((child) => {
-    processNode(child);
-  });
-
-  // Merge consecutive text nodes with same formatting
-  const merged = [];
-  let current = null;
-  
-  richText.forEach((rt) => {
-    const formatKey = JSON.stringify(rt.font || {});
-    if (current && current.formatKey === formatKey) {
-      current.text += rt.text;
-    } else {
-      if (current) {
-        merged.push({ text: current.text, font: current.font });
-      }
-      current = { 
-        text: rt.text, 
-        font: rt.font || {}, 
-        formatKey 
-      };
-    }
-  });
-  if (current) {
-    merged.push({ text: current.text, font: current.font });
-  }
-
-  // Set cell value with rich text if we have formatting, otherwise plain text
-  if (merged.length > 0) {
-    // Check if we have any formatting
-    const hasFormatting = merged.some(rt => 
-      rt.font.bold || rt.font.italic || rt.font.name
-    );
-    
-    if (hasFormatting) {
-      cell.value = { richText: merged };
-    } else {
-      // No formatting, just use plain text with newlines
-      const plainText = merged.map(rt => rt.text).join("");
-      cell.value = plainText;
-    }
-  } else {
-    // Fallback: extract plain text with line breaks
-    let text = tempDiv.textContent || "";
-    // Preserve newlines
-    text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-    cell.value = text;
-  }
-
-  // Add images to worksheet (positioned inside the corresponding cell)
-  images.forEach((imgData, idx) => {
-    const promise = addImageToWorksheet(
-      worksheet,
-      imgData.src,
-      rowNum,
-      colIndex,
-      idx,
-      images.length
-    );
-    imagePromises.push(promise);
-  });
-
-  // Enable word wrap and set alignment
-  cell.alignment = { wrapText: true, vertical: "top" };
-  
-  // Set row height based on content and images.
-  // Keep rows without images compact; make image rows taller so images can fit *inside* the cell.
-  const baseHeight = 20; // points
-  const imageExtra = images.length > 0 ? 80 : 0; // extra points for image rows
-  cell.row.height = Math.max(cell.row.height || baseHeight, baseHeight + imageExtra);
-}
-
-async function addImageToWorksheet(worksheet, dataUrl, rowNum, colIndex, imageIndex, totalImagesInCell) {
-  try {
-    // Convert data URL to buffer
-    const base64Data = dataUrl.split(",")[1];
-    if (!base64Data) {
-      console.warn("No base64 data in image URL");
+  imgElements.forEach((img) => {
+    const src = img.getAttribute("src") || "";
+    if (!src.startsWith("data:image")) {
+      // Non-data URLs are left as-is in the HTML
       return;
     }
 
-    const binaryString = atob(base64Data);
-    const imageBuffer = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      imageBuffer[i] = binaryString.charCodeAt(i);
+    // Generate unique image ID placeholder
+    const imageId = `//image:${uuid()}`;
+
+    // Decode base64 data and add image file into the zip
+    try {
+      const base64Data = src.split(",")[1];
+      if (!base64Data) {
+        throw new Error("No base64 data in image src");
+      }
+
+      const binaryString = atob(base64Data);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Store under images/ with filename equal to the placeholder ID
+      const imagePath = `images/${imageId}`;
+      zip.file(imagePath, bytes);
+    } catch (err) {
+      console.warn("Failed to decode/export image for CSV:", err);
     }
 
-    // Get image dimensions
-    const img = new Image();
-    await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = () => {
-        console.warn("Failed to load image for dimensions");
-        reject(new Error("Image load failed"));
-      };
-      img.src = dataUrl;
-    });
+    // Replace the <img> with the placeholder text node so the marker
+    // appears in the correct position in the HTML flow.
+    const placeholderNode = document.createTextNode(imageId);
+    if (img.parentNode) {
+      img.parentNode.replaceChild(placeholderNode, img);
+    }
+  });
 
-    // Add image to workbook
-    const imageId = worksheet.workbook.addImage({
-      buffer: imageBuffer,
-      extension: "png",
-    });
-
-    // ExcelJS uses 0-based column and row indices for anchors
-    const col = colIndex - 1;
-    const row = rowNum - 1;
-
-    // Determine cell size in pixels to ensure the image stays fully inside that cell
-    const excelColumn = worksheet.getColumn(colIndex);
-    const columnCharWidth = excelColumn.width || 10; // in "characters"
-    // Rough conversion: 1 character width ≈ 7 pixels (Excel standard is ~7.1)
-    const maxWidthPx = columnCharWidth * 7;
-
-    const excelRow = worksheet.getRow(rowNum);
-    const rowHeightPoints = excelRow.height || 20; // default height in points
-    // 1 point ≈ 1.33 pixels
-    const rowHeightPx = rowHeightPoints * 1.33;
-
-    // If there are multiple images in the same cell, divide vertical space between them
-    const availableHeightPerImage = rowHeightPx / (totalImagesInCell || 1);
-
-    // Scale image to fit within the cell bounds while preserving aspect ratio
-    const maxWidth = maxWidthPx;
-    const maxHeight = availableHeightPerImage;
-    const scale = Math.min(1, maxWidth / img.width, maxHeight / img.height);
-    const width = Math.max(1, Math.round(img.width * scale));
-    const height = Math.max(1, Math.round(img.height * scale));
-
-    // Anchor the image to the top-left of the cell; ext keeps it inside the cell box
-    worksheet.addImage(imageId, {
-      tl: { col: col, row: row },
-      ext: { width: width, height: height },
-      editAs: "oneCell", // Anchor to one cell
-    });
-  } catch (err) {
-    console.warn("Failed to add image to worksheet:", err);
-    // Don't throw - continue with other images
-  }
+  // Return HTML string with <img> tags replaced by //image:ID... markers
+  return tempDiv.innerHTML;
 }
 
 // ==== CLEAR ALL ====
