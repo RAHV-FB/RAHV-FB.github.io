@@ -900,9 +900,6 @@ async function handleExportExcel() {
         const markCell = row.getCell("mark_scheme");
         processRichTextCell(markCell, q.mark_scheme || "", imagePromises, rowNum, 4, worksheet);
 
-        // Set row height for images
-        row.height = 100;
-
         rowNum++;
       });
     });
@@ -955,10 +952,9 @@ function processRichTextCell(cell, html, imagePromises, rowNum, colIndex, worksh
     const src = img.getAttribute("src");
     if (src && src.startsWith("data:image")) {
       images.push({ src, index: idx });
-      // Replace img with a visible placeholder that won't break text flow
-      const placeholder = document.createTextNode(` [Image ${idx + 1}] `);
+      // Remove the <img> from the HTML so no placeholder text appears in the cell
       if (img.parentNode) {
-        img.parentNode.replaceChild(placeholder, img);
+        img.parentNode.removeChild(img);
       }
     }
   });
@@ -1073,7 +1069,8 @@ function processRichTextCell(cell, html, imagePromises, rowNum, colIndex, worksh
   cell.alignment = { wrapText: true, vertical: "top" };
   
   // Set row height based on content and images
-  const baseHeight = 60;
+  // Keep rows without images compact, make image rows taller
+  const baseHeight = 20;
   const imageHeight = images.length > 0 ? 150 : 0;
   cell.row.height = Math.max(cell.row.height || baseHeight, baseHeight + imageHeight);
 }
