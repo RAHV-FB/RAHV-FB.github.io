@@ -58,27 +58,55 @@ function saveStateToStorage() {
       currentSetId: state.currentSetId,
       editingQuestionId: state.editingQuestionId,
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+    const jsonString = JSON.stringify(dataToSave);
+    localStorage.setItem(STORAGE_KEY, jsonString);
+    console.log("State saved to localStorage:", {
+      exam: dataToSave.exam,
+      setsCount: dataToSave.sets.length,
+      questionsCount: dataToSave.questions.length,
+      currentSetId: dataToSave.currentSetId
+    });
   } catch (err) {
-    console.warn("Failed to save state to localStorage:", err);
+    console.error("Failed to save state to localStorage:", err);
+    // Check if it's a quota exceeded error
+    if (err.name === 'QuotaExceededError' || err.code === 22) {
+      alert("Storage quota exceeded. Please clear some data or use a different browser.");
+    }
   }
 }
 
 function loadStateFromStorage() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return false;
+    if (!saved) {
+      console.log("No saved state found in localStorage");
+      return false;
+    }
 
     const data = JSON.parse(saved);
-    if (data.exam) state.exam = data.exam;
-    if (data.sets) state.sets = data.sets;
-    if (data.questions) state.questions = data.questions;
-    if (data.currentSetId !== undefined) state.currentSetId = data.currentSetId;
-    if (data.editingQuestionId !== undefined) state.editingQuestionId = data.editingQuestionId;
+    console.log("Loaded state from localStorage:", data);
+    
+    // Restore state with validation
+    if (data.exam && typeof data.exam === 'object') {
+      state.exam = { ...state.exam, ...data.exam };
+    }
+    if (Array.isArray(data.sets)) {
+      state.sets = data.sets;
+    }
+    if (Array.isArray(data.questions)) {
+      state.questions = data.questions;
+    }
+    if (data.currentSetId !== undefined && data.currentSetId !== null) {
+      state.currentSetId = data.currentSetId;
+    }
+    if (data.editingQuestionId !== undefined) {
+      state.editingQuestionId = data.editingQuestionId;
+    }
 
+    console.log("State restored:", state);
     return true;
   } catch (err) {
-    console.warn("Failed to load state from localStorage:", err);
+    console.error("Failed to load state from localStorage:", err);
     return false;
   }
 }
@@ -86,7 +114,16 @@ function loadStateFromStorage() {
 function restoreFormFromState() {
   // Restore exam fields
   if (state.exam.subject) {
-    subjectEl.value = state.exam.subject;
+    // Check if the subject value exists in the select options
+    const subjectOption = Array.from(subjectEl.options).find(
+      opt => opt.textContent === state.exam.subject || opt.value === state.exam.subject
+    );
+    if (subjectOption) {
+      subjectEl.value = subjectOption.value;
+    } else {
+      // If exact match not found, try to set by value directly
+      subjectEl.value = state.exam.subject;
+    }
   }
   if (state.exam.exam) {
     examEl.value = state.exam.exam;
@@ -1123,6 +1160,12 @@ function init() {
   // Load saved state from localStorage
   const hasSavedState = loadStateFromStorage();
   if (hasSavedState) {
+    // Validate currentSetId - ensure it matches an existing set
+    if (state.currentSetId && !state.sets.find(s => s.id === state.currentSetId)) {
+      console.warn("currentSetId doesn't match any set, resetting to first set or null");
+      state.currentSetId = state.sets.length > 0 ? state.sets[0].id : null;
+    }
+    
     restoreFormFromState();
     // Restore UI after loading state
     renderSetsList();
@@ -1131,12 +1174,23 @@ function init() {
     updateStatus();
   }
 
+  // Check localStorage availability
+  if (typeof Storage === "undefined" || !window.localStorage) {
+    console.error("localStorage is not available in this browser");
+    alert("Warning: localStorage is not available. Your data will not be saved between sessions.");
+  }
+
   // Auto-save exam fields when they change
   subjectEl.addEventListener("change", () => {
     state.exam.subject = subjectEl.value;
     saveStateToStorage();
   });
+  // Use both input and change events for exam field to ensure it saves
   examEl.addEventListener("input", () => {
+    state.exam.exam = examEl.value;
+    saveStateToStorage();
+  });
+  examEl.addEventListener("change", () => {
     state.exam.exam = examEl.value;
     saveStateToStorage();
   });
