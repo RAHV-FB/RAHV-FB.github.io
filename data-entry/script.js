@@ -903,6 +903,299 @@ function handleDropOnQuestion(targetSetId, targetQuestionId) {
   renderPreview();
 }
 
+// ==== TEXT NORMALIZATION FOR CSV EXPORT ====
+
+/**
+ * Fix character encoding issues (mojibake) from copy-paste
+ */
+function normalizeCharacterEncoding(text) {
+  if (!text) return text;
+  
+  // Character encoding fixes (mojibake patterns)
+  const encodingFixes = [
+    // Apostrophes and quotes - common UTF-8 mojibake patterns
+    [/‚Äô/g, "'"],           // Wrong apostrophe (common)
+    [/â€™/g, "'"],           // Another apostrophe variant
+    [/â€˜/g, "'"],           // Left single quote
+    [/â€™/g, "'"],           // Right single quote
+    [/‚Äú/g, '"'],           // Opening double quote
+    [/‚Äù/g, '"'],           // Closing double quote
+    [/â€œ/g, '"'],           // Left double quote
+    [/â€/g, '"'],            // Right double quote
+    [/â€"/g, '"'],           // Another quote variant
+    [/â€"/g, '"'],           // Another quote variant
+    // Mathematical symbols
+    [/‚â†/g, "≠"],           // Not equal symbol
+    [/‚â†'/g, "≠"],          // Variant with apostrophe
+    [/â‰ /g, "≠"],           // Not equal (U+2260)
+    [/â‰ /g, "≠"],           // Another variant
+    [/â‰¥/g, "≥"],           // Greater or equal (if needed)
+    [/â‰¤/g, "≤"],           // Less or equal (if needed)
+    // Bullets and dashes
+    [/‚Ä¢/g, "•"],           // Bullet point
+    [/â€¢/g, "•"],           // Another bullet variant
+    [/â€"/g, "—"],           // Em dash
+    [/â€"/g, "–"],           // En dash
+  ];
+  
+  let normalized = text;
+  encodingFixes.forEach(([pattern, replacement]) => {
+    normalized = normalized.replace(pattern, replacement);
+  });
+  
+  return normalized;
+}
+
+/**
+ * Fix text spacing and punctuation issues
+ */
+function normalizeTextSpacing(html) {
+  if (!html) return html;
+  
+  // First, do simple string replacements that are safe
+  let normalized = html;
+  
+  // Fix missing space after full stop: "word.The" -> "word. The"
+  // But be careful not to break HTML tags or attributes
+  normalized = normalized.replace(/([.!?])([A-Za-z])/g, "$1 $2");
+  
+  // Fix broken apostrophes in common words (if encoding fix didn't catch them)
+  normalized = normalized.replace(/algorithm‚Äôs/g, "algorithm's");
+  normalized = normalized.replace(/algorithm's/g, "algorithm's"); // Ensure proper apostrophe
+  
+  // Now work with DOM for more complex fixes
+  const tempDiv = document.createElement("div");
+  tempDiv.innerHTML = normalized;
+  
+  // Walk through text nodes and ensure final periods
+  function walkTextNodes(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      let text = node.textContent;
+      
+      // Ensure final period at end of sentence (if text ends with letter, add period)
+      // But only if it's the last text node in its parent and doesn't already end with punctuation
+      if (text.trim() && /[A-Za-z]$/.test(text.trim()) && !/[.!?]$/.test(text.trim())) {
+        const nextSibling = node.nextSibling;
+        const parent = node.parentNode;
+        // Check if this is likely the end of a sentence (no following text in same block)
+        if (!nextSibling || 
+            (nextSibling.nodeType === Node.ELEMENT_NODE && 
+             ['P', 'DIV', 'BR', 'LI'].includes(nextSibling.tagName))) {
+          // Check if parent has more text nodes after this
+          const allTextNodes = Array.from(parent.childNodes)
+            .filter(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+          const isLastTextNode = allTextNodes[allTextNodes.length - 1] === node;
+          
+          if (isLastTextNode) {
+            text = text.trim() + ".";
+            if (node.nextSibling && node.nextSibling.nodeType === Node.ELEMENT_NODE) {
+              // Add space if there's a following element
+              text += " ";
+            }
+          }
+        }
+      }
+      
+      node.textContent = text;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      // Recursively process child nodes
+      const children = Array.from(node.childNodes);
+      children.forEach(walkTextNodes);
+    }
+  }
+  
+  walkTextNodes(tempDiv);
+  return tempDiv.innerHTML;
+}
+
+/**
+ * Normalize double double-quotes to single quotes
+ */
+function normalizeQuotes(html) {
+  if (!html) return html;
+  
+  // Fix double double-quotes: '""text""' -> '"text"'
+  // This handles cases like: output "" Your number is invalid, please try again""
+  let normalized = html;
+  
+  // Pattern 1: ""text"" (no spaces) -> "text"
+  normalized = normalized.replace(/""([^"]+)""/g, '"$1"');
+  
+  // Pattern 2: "" text "" (with spaces) -> "text"
+  normalized = normalized.replace(/""\s+([^"]+?)\s+""/g, '"$1"');
+  
+  // Pattern 3: ""text "" or "" text"" (one side has space) -> "text"
+  normalized = normalized.replace(/""\s*([^"]+?)\s*""/g, '"$1"');
+  
+  // Pattern 4: Handle cases where quotes might be at start/end of a line or block
+  // e.g., 'output "" Your number is invalid, please try again""'
+  normalized = normalized.replace(/(\w+)\s+""\s*([^"]+?)\s*""/g, '$1 "$2"');
+  
+  return normalized;
+}
+
+/**
+ * Ensure mark scheme has one marking point per block
+ * Split merged criteria into separate divs
+ */
+function normalizeMarkSchemeFormat(html) {
+  if (!html) return html;
+  
+  const tempDiv = document.createElement("div");
+  tempDiv.innerHTML = html;
+  
+  // Find all divs and paragraphs that might contain multiple criteria
+  const blocks = Array.from(tempDiv.querySelectorAll("div, p"));
+  
+  blocks.forEach(block => {
+    const text = block.textContent || "";
+    
+    // Pattern: Look for multiple criteria separated by semicolons
+    // e.g., "Correct use of loop ...; Checking if NUMBER is between..."
+    // Split on semicolons that are followed by a space and a capital letter or common verbs
+    // Only split if we see patterns like: "...; Checking..." or "...; Appropriate..."
+    const hasMultipleCriteria = /;\s+(?:[A-Z][a-z]+|Checking|Appropriate|Correct|Output|Input|Ensuring)/.test(text);
+    
+    if (hasMultipleCriteria) {
+      // Split on semicolons followed by space and capital letter or common verbs
+      // Use a more specific pattern to avoid false positives
+      const parts = text.split(/;\s+(?=[A-Z][a-z]+|Checking|Appropriate|Correct|Output|Input|Ensuring)/);
+      
+      if (parts.length > 1 && parts.every(p => p.trim().length > 10)) {
+        // Multiple criteria found - split them (only if each part is substantial)
+        const parent = block.parentNode;
+        
+        // Create a document fragment to hold new blocks
+        const fragment = document.createDocumentFragment();
+        
+        // Create separate divs for each criterion
+        parts.forEach((part, index) => {
+          const criterionText = part.trim();
+          if (criterionText && criterionText.length > 5) {
+            // Remove trailing semicolon if present
+            const cleanText = criterionText.replace(/;\s*$/, "").trim();
+            if (cleanText) {
+              const newDiv = document.createElement("div");
+              newDiv.textContent = cleanText;
+              // Preserve original block's attributes if any
+              if (block.className) newDiv.className = block.className;
+              if (block.style && block.style.cssText) {
+                newDiv.style.cssText = block.style.cssText;
+              }
+              fragment.appendChild(newDiv);
+            }
+          }
+        });
+        
+        // Replace the original block with the fragment
+        if (fragment.childNodes.length > 0) {
+          parent.replaceChild(fragment, block);
+        }
+      }
+    }
+  });
+  
+  return tempDiv.innerHTML;
+}
+
+/**
+ * Fix broken logical lines - keep conditions in one block
+ * Prevents conditions from being split across HTML tags
+ */
+function fixBrokenLogicalLines(html) {
+  if (!html) return html;
+  
+  const tempDiv = document.createElement("div");
+  tempDiv.innerHTML = html;
+  
+  // First pass: fix spacing in conditions within text
+  function fixConditionSpacing(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      let text = node.textContent;
+      
+      // Fix spacing around operators in conditions
+      // "NUMBER < 0" -> "NUMBER<0" (remove spaces around < > in conditions)
+      // But be careful: "if (x < 0)" should become "if (x<0)" not "if(x<0)"
+      text = text.replace(/(\w+)\s*([<>])\s*(\d+)/g, "$1$2$3");
+      text = text.replace(/(\w+)\s*div\s*(\d+)\s*≠\s*(\w+)\/(\d+)/g, "$1 div $2≠$3/$4");
+      
+      node.textContent = text;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      // Recursively process child nodes
+      const children = Array.from(node.childNodes);
+      children.forEach(fixConditionSpacing);
+    }
+  }
+  
+  fixConditionSpacing(tempDiv);
+  
+  // Second pass: merge adjacent text nodes that form broken conditions
+  function mergeBrokenConditions(node) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const childNodes = Array.from(node.childNodes);
+      
+      for (let i = 0; i < childNodes.length - 1; i++) {
+        const current = childNodes[i];
+        const next = childNodes[i + 1];
+        
+        if (current.nodeType === Node.TEXT_NODE && next.nodeType === Node.TEXT_NODE) {
+          const currentText = current.textContent.trim();
+          const nextText = next.textContent.trim();
+          
+          // Check if they form a broken condition
+          // e.g., "NUMBER<" and "0" or "NUMBER div 1" and "≠ NUMBER/1"
+          // or "while NUMBER" and "<0"
+          if ((currentText.match(/[<>≠=]$/) && /^\d+/.test(nextText)) ||
+              (currentText.match(/div\s*\d+$/) && /^≠/.test(nextText)) ||
+              (currentText.match(/\w+$/) && /^[<>]/.test(nextText)) ||
+              (currentText.match(/NUMBER$/) && /^</.test(nextText))) {
+            // Merge them with no space
+            current.textContent = currentText + nextText;
+            next.remove();
+            // Adjust index since we removed a node
+            i--;
+          }
+        }
+      }
+      
+      // Recursively process remaining children
+      const remainingChildren = Array.from(node.childNodes);
+      remainingChildren.forEach(mergeBrokenConditions);
+    }
+  }
+  
+  mergeBrokenConditions(tempDiv);
+  return tempDiv.innerHTML;
+}
+
+/**
+ * Comprehensive normalization function that applies all fixes
+ */
+function normalizeHtmlForExport(html, isMarkScheme = false) {
+  if (!html) return html;
+  
+  let normalized = html;
+  
+  // 1. Fix character encoding
+  normalized = normalizeCharacterEncoding(normalized);
+  
+  // 2. Fix quotes
+  normalized = normalizeQuotes(normalized);
+  
+  // 3. Fix text spacing
+  normalized = normalizeTextSpacing(normalized);
+  
+  // 4. For mark schemes, enforce one marking point per block
+  if (isMarkScheme) {
+    normalized = normalizeMarkSchemeFormat(normalized);
+  }
+  
+  // 5. Fix broken logical lines
+  normalized = fixBrokenLogicalLines(normalized);
+  
+  return normalized;
+}
+
 // ==== CSV EXPORT WITH HTML + IMAGE PLACEHOLDERS ====
 async function handleExportExcel() {
   const examInfo = validateExamInfo();
@@ -961,10 +1254,14 @@ async function handleExportExcel() {
       );
 
       questions.forEach((q) => {
-        // Transform HTML to keep formatting and replace each <img> with a placeholder
+        // Normalize and transform HTML to keep formatting and replace each <img> with a placeholder
         // like //image:UUID..., while saving the decoded image to the zip.
-        const textHtml = transformHtmlForCsv(q.text_body || "", zip);
-        const markHtml = transformHtmlForCsv(q.mark_scheme || "", zip);
+        // Apply normalization before image processing
+        const normalizedTextBody = normalizeHtmlForExport(q.text_body || "", false);
+        const normalizedMarkScheme = normalizeHtmlForExport(q.mark_scheme || "", true);
+        
+        const textHtml = transformHtmlForCsv(normalizedTextBody, zip);
+        const markHtml = transformHtmlForCsv(normalizedMarkScheme, zip);
 
         const row = [
           q.uniqueid,
@@ -1030,6 +1327,7 @@ async function handleExportExcel() {
  * - Replace each inline <img src="data:..."> with a unique placeholder string
  *   like //image:UUID...
  * - Decode each image and add it to the zip under images//image:UUID...
+ * Note: HTML should be normalized before calling this function
  */
 function transformHtmlForCsv(html, zip) {
   if (!html) return "";
@@ -1142,8 +1440,8 @@ function initInstructionsToggle() {
 
   // Set initial state
   instructionsContent.style.display = isExpanded ? "block" : "none";
-  // Arrow up with "CLOSE INSTRUCTIONS" when open, arrow down with "VIEW INSTRUCTIONS" when closed
-  instructionsToggleIcon.textContent = isExpanded ? "▲ CLOSE INSTRUCTIONS" : "▼ VIEW INSTRUCTIONS";
+  // Arrow up with "CLOSE INSTRUCTION" when open, arrow down with "VIEW INSTRUCTIONS" when closed
+  instructionsToggleIcon.textContent = isExpanded ? "▲ CLOSE INSTRUCTION" : "▼ VIEW INSTRUCTIONS";
 
   // Prevent scroll when instructions are expanded on load
   if (isExpanded) {
