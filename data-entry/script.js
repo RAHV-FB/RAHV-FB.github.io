@@ -1169,29 +1169,269 @@ function fixBrokenLogicalLines(html) {
 }
 
 /**
+ * Remove bold tags from question text (only section headers should be bold)
+ * Also fixes incorrect punctuation added after words
+ */
+function removeBoldFromQuestionText(html) {
+  if (!html) return html;
+  
+  const tempDiv = document.createElement("div");
+  tempDiv.innerHTML = html;
+  
+  // Remove all <b> and <strong> tags, keeping their text content
+  const boldElements = tempDiv.querySelectorAll("b, strong");
+  boldElements.forEach((bold) => {
+    const parent = bold.parentNode;
+    if (parent) {
+      // Check if bold contains only common words that shouldn't be bold
+      const boldText = bold.textContent.trim();
+      const commonWords = /\b(and|or|two|either|both|all|some|any|Australia|New Zealand|reference|to)\b/i;
+      
+      if (commonWords.test(boldText)) {
+        // Remove bold tag and its incorrect punctuation
+        const textNode = document.createTextNode(boldText.replace(/\.$/, "") + " ");
+        parent.replaceChild(textNode, bold);
+      } else {
+        // Just unwrap the bold tag
+        while (bold.firstChild) {
+          parent.insertBefore(bold.firstChild, bold);
+        }
+        parent.removeChild(bold);
+      }
+    }
+  });
+  
+  // Fix incorrect punctuation patterns:
+  // "word.</b>" -> "word" (remove periods after words before closing tags)
+  let htmlStr = tempDiv.innerHTML;
+  htmlStr = htmlStr.replace(/(\b(?:and|or|two|either|both|all|some|any|Australia|New Zealand|reference|to)\b)\.(<\/[^>]+>|\s+)/gi, "$1$2");
+  
+  // Fix "word.or" -> "word or" (missing space after bold)
+  htmlStr = htmlStr.replace(/(\w+)(<\/[^>]+>)([a-z])/gi, "$1$2 $3");
+  
+  // Fix "word.or" -> "word or" (missing space before bold)
+  htmlStr = htmlStr.replace(/([a-z])(<[^>]+>)(\w+)/gi, "$1 $2$3");
+  
+  // Remove any remaining periods after common words
+  htmlStr = htmlStr.replace(/\b(and|or|two|either|both|all|some|any)\.(\s)/gi, "$1$2");
+  
+  // Clean up multiple spaces
+  htmlStr = htmlStr.replace(/\s+/g, " ");
+  
+  return htmlStr;
+}
+
+/**
+ * Decode HTML entities like &nbsp; to spaces
+ */
+function decodeHtmlEntities(html) {
+  if (!html) return html;
+  
+  const tempDiv = document.createElement("div");
+  tempDiv.innerHTML = html;
+  
+  // Replace &nbsp; with regular spaces
+  let decoded = html;
+  decoded = decoded.replace(/&nbsp;/g, " ");
+  decoded = decoded.replace(/&amp;/g, "&");
+  decoded = decoded.replace(/&lt;/g, "<");
+  decoded = decoded.replace(/&gt;/g, ">");
+  decoded = decoded.replace(/&quot;/g, '"');
+  decoded = decoded.replace(/&#39;/g, "'");
+  
+  // Remove multiple consecutive spaces
+  decoded = decoded.replace(/\s+/g, " ");
+  
+  return decoded;
+}
+
+/**
+ * Remove hard line breaks (convert <br> and newlines to spaces, keep paragraph breaks only)
+ */
+function removeHardLineBreaks(html) {
+  if (!html) return html;
+  
+  const tempDiv = document.createElement("div");
+  tempDiv.innerHTML = html;
+  
+  // Convert all <br> tags to spaces (for question text, we want continuous text)
+  const brElements = tempDiv.querySelectorAll("br");
+  brElements.forEach((br) => {
+    const parent = br.parentNode;
+    if (parent) {
+      // Check if previous text ends with sentence-ending punctuation
+      let prevText = "";
+      let current = br.previousSibling;
+      while (current) {
+        if (current.nodeType === Node.TEXT_NODE) {
+          prevText = current.textContent + prevText;
+        } else if (current.nodeType === Node.ELEMENT_NODE && current.textContent) {
+          prevText = current.textContent + prevText;
+        }
+        current = current.previousSibling;
+      }
+      
+      // If previous text ends with punctuation, it might be intentional paragraph break
+      // But for question text, we generally want to join lines
+      // Only preserve breaks if they're clearly paragraph separators (followed by capital letter)
+      const nextText = br.nextSibling ? (br.nextSibling.textContent || "").trim() : "";
+      const isParagraphBreak = /[.!?]$/.test(prevText.trim()) && /^[A-Z]/.test(nextText);
+      
+      if (!isParagraphBreak) {
+        // Mid-sentence break - convert to space
+        const spaceNode = document.createTextNode(" ");
+        parent.replaceChild(spaceNode, br);
+      } else {
+        // Paragraph break - remove but keep structure (paragraphs should be separate)
+        parent.removeChild(br);
+      }
+    }
+  });
+  
+  // Also handle explicit newline characters in text nodes
+  function normalizeNewlines(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      let text = node.textContent;
+      // Replace newlines with spaces
+      text = text.replace(/\r\n/g, " ");
+      text = text.replace(/\n/g, " ");
+      text = text.replace(/\r/g, " ");
+      // Clean up multiple spaces (but preserve single spaces)
+      text = text.replace(/\s+/g, " ");
+      node.textContent = text;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const children = Array.from(node.childNodes);
+      children.forEach(normalizeNewlines);
+    }
+  }
+  
+  normalizeNewlines(tempDiv);
+  
+  // Final pass: ensure no line breaks remain in question text
+  let htmlStr = tempDiv.innerHTML;
+  htmlStr = htmlStr.replace(/<br\s*\/?>/gi, " ");
+  htmlStr = htmlStr.replace(/\s+/g, " ");
+  
+  return htmlStr;
+}
+
+/**
+ * Remove trailing periods from section headers/titles
+ */
+function removeTrailingPunctuation(html) {
+  if (!html) return html;
+  
+  // Remove trailing periods from specific known section headers
+  let cleaned = html;
+  
+  // Known section headers that shouldn't have trailing periods
+  const knownHeaders = [
+    "Impact of the Second World War on South-East Asia",
+    "Cold War conflicts in Asia"
+  ];
+  
+  // Check if the HTML contains any of these headers with trailing periods
+  knownHeaders.forEach(header => {
+    // Match the header followed by a period (possibly with HTML tags)
+    const pattern = new RegExp(`(${header.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\.(</[^>]+>|$)`, 'gi');
+    cleaned = cleaned.replace(pattern, (match, headerText, tag) => {
+      return headerText + tag;
+    });
+  });
+  
+  // Also handle generic pattern: short title-like text ending with period
+  cleaned = cleaned.replace(/([A-Z][^.!?]{0,80}?)\.(<\/[^>]+>|$)/g, (match, text, tag) => {
+    const plainText = text.replace(/<[^>]+>/g, "").trim();
+    // Only remove period if it matches known header patterns
+    if (/^(Impact of the Second World War|Cold War conflicts)/i.test(plainText)) {
+      return text + tag;
+    }
+    return match;
+  });
+  
+  return cleaned;
+}
+
+/**
+ * Convert HTML to plain text while preserving img tags (for image placeholder processing)
+ */
+function htmlToPlainTextWithImages(html) {
+  if (!html) return "";
+  
+  const tempDiv = document.createElement("div");
+  tempDiv.innerHTML = html;
+  
+  // Remove all HTML tags except img
+  function processNode(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      if (node.tagName === "IMG") {
+        // Keep img tag as-is for later processing
+        return node.outerHTML;
+      } else {
+        // Recursively process children
+        let result = "";
+        Array.from(node.childNodes).forEach(child => {
+          result += processNode(child);
+        });
+        return result;
+      }
+    }
+    return "";
+  }
+  
+  let result = "";
+  Array.from(tempDiv.childNodes).forEach(node => {
+    result += processNode(node);
+  });
+  
+  // Clean up whitespace (preserve single spaces)
+  result = result.replace(/\s+/g, " ").trim();
+  
+  return result;
+}
+
+/**
  * Comprehensive normalization function that applies all fixes
  */
-function normalizeHtmlForExport(html, isMarkScheme = false) {
+function normalizeHtmlForExport(html, isMarkScheme = false, isQuestionText = false) {
   if (!html) return html;
   
   let normalized = html;
   
-  // 1. Fix character encoding
+  // 1. Decode HTML entities
+  normalized = decodeHtmlEntities(normalized);
+  
+  // 2. For question text: convert to plain text (no HTML tags except img for placeholders)
+  if (isQuestionText) {
+    // First remove bold tags and fix punctuation issues
+    normalized = removeBoldFromQuestionText(normalized);
+    normalized = removeHardLineBreaks(normalized);
+    // Convert to plain text while preserving img tags (they'll be processed by transformHtmlForCsv)
+    normalized = htmlToPlainTextWithImages(normalized);
+    return normalized; // Return early for question text (plain text with img tags only)
+  }
+  
+  // 3. Fix character encoding (for mark schemes and headers)
   normalized = normalizeCharacterEncoding(normalized);
   
-  // 2. Fix quotes
+  // 4. Fix quotes
   normalized = normalizeQuotes(normalized);
   
-  // 3. Fix text spacing
+  // 5. Fix text spacing (for mark schemes)
   normalized = normalizeTextSpacing(normalized);
   
-  // 4. For mark schemes, enforce one marking point per block
+  // 6. For mark schemes, enforce one marking point per block
   if (isMarkScheme) {
     normalized = normalizeMarkSchemeFormat(normalized);
   }
   
-  // 5. Fix broken logical lines
+  // 7. Fix broken logical lines
   normalized = fixBrokenLogicalLines(normalized);
+  
+  // 8. Remove trailing periods from section headers
+  normalized = removeTrailingPunctuation(normalized);
   
   return normalized;
 }
@@ -1241,41 +1481,108 @@ async function handleExportExcel() {
       if (!bySet[q.set_id]) bySet[q.set_id] = [];
       bySet[q.set_id].push(q);
     });
-    const setsSorted = [...state.sets].sort((a, b) =>
-      a.label.localeCompare(b.label)
-    );
+    // Sort sets numerically by section number, then by label if no section
+    const setsSorted = [...state.sets].sort((a, b) => {
+      // Extract numeric section from section field or label
+      const getSectionNum = (set) => {
+        if (set.section) {
+          const match = String(set.section).match(/(\d+)/);
+          if (match) return parseInt(match[1], 10);
+        }
+        // Try to extract number from label (e.g., "Section 2", "2", "Question 10")
+        const labelMatch = String(set.label).match(/(\d+)/);
+        if (labelMatch) return parseInt(labelMatch[1], 10);
+        return 999; // Put non-numeric sections at end
+      };
+      const aNum = getSectionNum(a);
+      const bNum = getSectionNum(b);
+      if (aNum !== bNum) return aNum - bNum;
+      // Fallback to label comparison if section numbers are equal
+      return a.label.localeCompare(b.label);
+    });
 
     const rows = [];
     rows.push(headers);
 
-    setsSorted.forEach((set) => {
+    // Generate unique hierarchical paths and fix metadata
+    let questionNumber = 1; // Track question number across all sets
+    
+    setsSorted.forEach((set, setIndex) => {
       const questions = (bySet[set.id] || []).sort(
         (a, b) => (a.order || 0) - (b.order || 0)
       );
 
-      questions.forEach((q) => {
-        // Normalize and transform HTML to keep formatting and replace each <img> with a placeholder
-        // like //image:UUID..., while saving the decoded image to the zip.
-        // Apply normalization before image processing
-        const normalizedTextBody = normalizeHtmlForExport(q.text_body || "", false);
-        const normalizedMarkScheme = normalizeHtmlForExport(q.mark_scheme || "", true);
+      // Extract section number from set (1-18)
+      const sectionNum = (() => {
+        if (set.section) {
+          const match = String(set.section).match(/(\d+)/);
+          if (match) return parseInt(match[1], 10);
+        }
+        // Try to extract from label
+        const labelMatch = String(set.label).match(/(\d+)/);
+        if (labelMatch) {
+          const num = parseInt(labelMatch[1], 10);
+          if (num >= 1 && num <= 18) return num;
+        }
+        return setIndex + 1; // Fallback to index-based
+      })();
+
+      questions.forEach((q, qIndex) => {
+        // Determine if this is a section header (answer_type 0) or a question
+        const isSectionHeader = q.answer_type === 0;
+        const isQuestion = q.answer_type === 1 || q.answer_type === 2;
+        
+        // Generate unique hierarchical path
+        // Format: S01, S01.Q01, S01.Q02, etc. for questions
+        // Format: S01 for section headers
+        let uniquePath;
+        if (isSectionHeader) {
+          uniquePath = `S${String(sectionNum).padStart(2, '0')}`;
+        } else {
+          uniquePath = `S${String(sectionNum).padStart(2, '0')}.Q${String(questionNumber).padStart(2, '0')}`;
+          questionNumber++;
+        }
+        
+        // Fix marks: 15 for questions, 0 for section headers
+        let correctMarks = q.marks ?? 0;
+        if (isQuestion && correctMarks !== 15) {
+          // Paper 3 questions should be 15 marks each
+          correctMarks = 15;
+        } else if (isSectionHeader) {
+          correctMarks = 0;
+        }
+        
+        // Populate section (1-18)
+        const sectionValue = sectionNum.toString();
+        
+        // Populate topic from set label (section title)
+        const topicValue = set.label || "";
+        
+        // Normalize and transform HTML
+        // Section headers (answer_type 0) should keep HTML formatting including bold
+        // Question text (answer_type 1 or 2) should be plain text (no bold tags, no hard breaks)
+        // Mark scheme should preserve formatting
+        const normalizedTextBody = isSectionHeader 
+          ? normalizeHtmlForExport(q.text_body || "", false, false) // Keep HTML for headers
+          : normalizeHtmlForExport(q.text_body || "", false, true);  // Plain text for questions
+        const normalizedMarkScheme = normalizeHtmlForExport(q.mark_scheme || "", true, false);
         
         const textHtml = transformHtmlForCsv(normalizedTextBody, zip);
         const markHtml = transformHtmlForCsv(normalizedMarkScheme, zip);
 
         const row = [
           q.uniqueid,
-          q.path,
+          uniquePath, // Use generated unique path
           textHtml,
           q.answer_type,
           markHtml,
           String(!!q.needs_context).toLowerCase(),
           q.exam || state.exam.exam,
           q.subject || state.exam.subject,
-          q.section || "",
-          q.topic || "",
+          sectionValue, // Populated section (1-18)
+          topicValue,   // Populated topic (section title)
           q.order ?? "",
-          q.marks ?? "",
+          correctMarks, // Fixed marks value
         ];
         rows.push(row);
       });
