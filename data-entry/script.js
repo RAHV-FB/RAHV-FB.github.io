@@ -906,36 +906,117 @@ function handleDropOnQuestion(targetSetId, targetQuestionId) {
 // ==== TEXT NORMALIZATION FOR CSV EXPORT ====
 
 /**
- * Fix character encoding issues (mojibake) from copy-paste
+ * Comprehensive character encoding normalization - fixes ALL common encoding issues
+ * Converts corrupted/mojibake characters back to their proper Unicode equivalents
  */
 function normalizeCharacterEncoding(text) {
   if (!text) return text;
   
-  // Character encoding fixes (mojibake patterns)
+  // Comprehensive character encoding fixes for ALL common mojibake patterns
   const encodingFixes = [
-    // Apostrophes and quotes - common UTF-8 mojibake patterns
-    [/‚Äô/g, "'"],           // Wrong apostrophe (common)
-    [/â€™/g, "'"],           // Another apostrophe variant
-    [/â€˜/g, "'"],           // Left single quote
-    [/â€™/g, "'"],           // Right single quote
-    [/‚Äú/g, '"'],           // Opening double quote
-    [/‚Äù/g, '"'],           // Closing double quote
-    [/â€œ/g, '"'],           // Left double quote
-    [/â€/g, '"'],            // Right double quote
+    // Apostrophes and single quotes (UTF-8 mis-encoded as Windows-1252 or ISO-8859-1)
+    [/‚Äô/g, "'"],           // UTF-8: U+2019 (right single quotation mark) mis-encoded
+    [/â€™/g, "'"],           // UTF-8: U+2019 mis-encoded (common)
+    [/â€˜/g, "'"],           // UTF-8: U+2018 (left single quotation mark) mis-encoded
+    [/â€™/g, "'"],           // UTF-8: U+2019 mis-encoded
+    [/'/g, "'"],             // Straight apostrophe (preserve as-is)
+    [/''/g, "'"],            // Double apostrophe -> single
+    [/`/g, "'"],             // Backtick -> apostrophe
+    [/´/g, "'"],             // Acute accent -> apostrophe
+    
+    // Double quotes (UTF-8 mis-encoded)
+    [/‚Äú/g, '"'],           // UTF-8: U+201C (left double quotation mark) mis-encoded
+    [/‚Äù/g, '"'],           // UTF-8: U+201D (right double quotation mark) mis-encoded
+    [/â€œ/g, '"'],           // UTF-8: U+201C mis-encoded
+    [/â€/g, '"'],            // UTF-8: U+201D mis-encoded
     [/â€"/g, '"'],           // Another quote variant
     [/â€"/g, '"'],           // Another quote variant
+    [/"/g, '"'],             // Straight double quote (preserve as-is, will be escaped in CSV)
+    
     // Mathematical symbols
-    [/‚â†/g, "≠"],           // Not equal symbol
-    [/‚â†'/g, "≠"],          // Variant with apostrophe
-    [/â‰ /g, "≠"],           // Not equal (U+2260)
-    [/â‰ /g, "≠"],           // Another variant
-    [/â‰¥/g, "≥"],           // Greater or equal (if needed)
-    [/â‰¤/g, "≤"],           // Less or equal (if needed)
-    // Bullets and dashes
-    [/‚Ä¢/g, "•"],           // Bullet point
-    [/â€¢/g, "•"],           // Another bullet variant
-    [/â€"/g, "—"],           // Em dash
-    [/â€"/g, "–"],           // En dash
+    [/‚â†/g, "≠"],           // Not equal symbol mis-encoded
+    [/‚â†'/g, "≠"],          // Not equal variant
+    [/â‰ /g, "≠"],           // UTF-8: U+2260 (not equal to) mis-encoded
+    [/â‰ /g, "≠"],           // Another not equal variant
+    [/â‰¥/g, "≥"],           // UTF-8: U+2265 (greater-than or equal to)
+    [/â‰¤/g, "≤"],           // UTF-8: U+2264 (less-than or equal to)
+    [/â‰/g, "≈"],            // UTF-8: U+2248 (almost equal to)
+    
+    // Dashes and hyphens
+    [/â€"/g, "—"],           // UTF-8: U+2014 (em dash) mis-encoded
+    [/â€"/g, "–"],           // UTF-8: U+2013 (en dash) mis-encoded
+    [/â€"/g, "—"],           // Em dash variant
+    [/â€"/g, "–"],           // En dash variant
+    [/—/g, "—"],             // Em dash (preserve if already correct)
+    [/–/g, "–"],             // En dash (preserve if already correct)
+    [/-/g, "-"],             // Regular hyphen (preserve)
+    
+    // Bullets and list markers
+    [/‚Ä¢/g, "•"],           // UTF-8: U+2022 (bullet) mis-encoded
+    [/â€¢/g, "•"],           // Bullet variant
+    [/â—/g, "•"],            // Bullet variant
+    [/•/g, "•"],             // Bullet (preserve if correct)
+    
+    // Ellipsis
+    [/â€¦/g, "…"],           // UTF-8: U+2026 (horizontal ellipsis) mis-encoded
+    [/.../g, "…"],           // Three dots -> ellipsis (optional)
+    
+    // Currency symbols
+    [/â‚¬/g, "€"],            // UTF-8: U+20AC (euro sign) mis-encoded
+    [/Â£/g, "£"],             // UTF-8: U+00A3 (pound sign) mis-encoded
+    [/Â¥/g, "¥"],             // UTF-8: U+00A5 (yen sign) mis-encoded
+    [/Â¢/g, "¢"],             // UTF-8: U+00A2 (cent sign) mis-encoded
+    
+    // Common accented characters (Latin-1/Windows-1252 mis-encoding)
+    [/Ã¡/g, "á"],             // UTF-8: U+00E1 (a with acute)
+    [/Ã©/g, "é"],             // UTF-8: U+00E9 (e with acute)
+    [/Ã­/g, "í"],             // UTF-8: U+00ED (i with acute)
+    [/Ã³/g, "ó"],             // UTF-8: U+00F3 (o with acute)
+    [/Ãº/g, "ú"],             // UTF-8: U+00FA (u with acute)
+    [/Ã±/g, "ñ"],             // UTF-8: U+00F1 (n with tilde)
+    [/Ã¡/g, "á"],             // a with acute
+    [/Ã©/g, "é"],             // e with acute
+    [/Ã­/g, "í"],             // i with acute
+    [/Ã³/g, "ó"],             // o with acute
+    [/Ãº/g, "ú"],             // u with acute
+    [/Ã/g, "à"],              // a with grave
+    [/Ã¨/g, "è"],             // e with grave
+    [/Ã¬/g, "ì"],             // i with grave
+    [/Ã²/g, "ò"],             // o with grave
+    [/Ã¹/g, "ù"],             // u with grave
+    [/Ã£/g, "ã"],             // a with tilde
+    [/Ãµ/g, "õ"],             // o with tilde
+    [/Ã§/g, "ç"],             // c with cedilla
+    [/Ã¼/g, "ü"],             // u with diaeresis
+    [/Ã¶/g, "ö"],             // o with diaeresis
+    [/Ã¤/g, "ä"],             // a with diaeresis
+    [/Ã«/g, "ë"],             // e with diaeresis
+    [/Ã¯/g, "ï"],             // i with diaeresis
+    [/Ã¿/g, "ÿ"],             // y with diaeresis
+    
+    // Uppercase accented characters
+    [/Ã/g, "Á"],              // A with acute
+    [/Ã‰/g, "É"],             // E with acute
+    [/Ã/g, "Í"],              // I with acute
+    [/Ã"/g, "Ó"],             // O with acute
+    [/Ãš/g, "Ú"],             // U with acute
+    [/Ã'/g, "Ñ"],             // N with tilde
+    
+    // Other common symbols
+    [/Â°/g, "°"],             // UTF-8: U+00B0 (degree sign)
+    [/Â©/g, "©"],             // UTF-8: U+00A9 (copyright sign)
+    [/Â®/g, "®"],             // UTF-8: U+00AE (registered sign)
+    [/Â§/g, "§"],             // UTF-8: U+00A7 (section sign)
+    [/Â¶/g, "¶"],             // UTF-8: U+00B6 (pilcrow sign)
+    [/Â±/g, "±"],             // UTF-8: U+00B1 (plus-minus sign)
+    [/Â²/g, "²"],             // UTF-8: U+00B2 (superscript two)
+    [/Â³/g, "³"],             // UTF-8: U+00B3 (superscript three)
+    [/Â¼/g, "¼"],             // UTF-8: U+00BC (vulgar fraction one quarter)
+    [/Â½/g, "½"],             // UTF-8: U+00BD (vulgar fraction one half)
+    [/Â¾/g, "¾"],             // UTF-8: U+00BE (vulgar fraction three quarters)
+    
+    // Remove null bytes and other control characters (except newlines/tabs)
+    [/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, ""], // Remove control chars except \n, \r, \t
   ];
   
   let normalized = text;
@@ -1543,15 +1624,6 @@ async function handleExportExcel() {
           questionNumber++;
         }
         
-        // Fix marks: 15 for questions, 0 for section headers
-        let correctMarks = q.marks ?? 0;
-        if (isQuestion && correctMarks !== 15) {
-          // Paper 3 questions should be 15 marks each
-          correctMarks = 15;
-        } else if (isSectionHeader) {
-          correctMarks = 0;
-        }
-        
         // Populate section (1-18)
         const sectionValue = sectionNum.toString();
         
@@ -1582,7 +1654,7 @@ async function handleExportExcel() {
           sectionValue, // Populated section (1-18)
           topicValue,   // Populated topic (section title)
           q.order ?? "",
-          correctMarks, // Fixed marks value
+          q.marks ?? "", // Preserve user-entered marks value
         ];
         rows.push(row);
       });
@@ -1603,8 +1675,13 @@ async function handleExportExcel() {
     const examClean = (state.exam.exam || "questions").replace(/\s+/g, "_");
     const csvFilename = `${examClean}_questions.csv`;
 
-    // Put CSV inside zip
-    zip.file(csvFilename, csvContent);
+    // Add UTF-8 BOM to ensure proper character encoding recognition
+    // Some systems (like Excel on Windows) need BOM to correctly interpret UTF-8
+    const utf8BOM = "\uFEFF";
+    const csvContentWithBOM = utf8BOM + csvContent;
+
+    // Put CSV inside zip with UTF-8 encoding (BOM ensures proper character encoding)
+    zip.file(csvFilename, csvContentWithBOM);
 
     // Generate zip (CSV + images folder)
     const zipBlob = await zip.generateAsync({ type: "blob" });
